@@ -234,6 +234,9 @@ export function renderTransactionsList() {
         } else {
             statusBadgeHtml = `<span style="background-color: var(--color-success-glow, #ecfdf5); color: var(--color-success, #10b981); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Reviewed</span>`;
         }
+        const settlementBadgeHtml = t.Pending === 1
+            ? `<span style="background-color: var(--color-warning-glow, #fffbeb); color: var(--color-warning, #d97706); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Pending</span>`
+            : `<span style="background-color: var(--color-success-glow, #ecfdf5); color: var(--color-success, #10b981); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Posted</span>`;
 
         let transferMatchHtml = "";
         if (t.Type === "Internal Transfer" && t.TransferCandidate && t.Reviewed === 0) {
@@ -253,7 +256,8 @@ export function renderTransactionsList() {
                 <div class="detail-container" style="display:flex; flex-direction:column; gap:16px;">
                     <!-- Primary Metadata Row -->
                     <div style="display: flex; gap: 24px; font-size:12px; color:var(--text-muted); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; flex-wrap: wrap;">
-                        <span><strong>Status:</strong> ${statusBadgeHtml}</span>
+                        <span><strong>Review:</strong> ${statusBadgeHtml}</span>
+                        <span><strong>Settlement:</strong> ${settlementBadgeHtml}</span>
                         <span><strong>Date:</strong> ${t.Date}</span>
                         <span><strong>Authorized:</strong> ${t.AuthorizedDate || 'N/A'}</span>
                         <span><strong>Plaid categories:</strong> ${plaidCategoriesText}</span>
