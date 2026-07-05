@@ -1,0 +1,1888 @@
+﻿import { state } from './modules/state.js';
+import { 
+    fetchCredentialsStatus, 
+    fetchTransactions, 
+    fetchAccountsApi, 
+    fetchCategoriesConfig,
+    confirmTransferApi,
+    fetchBalanceHistoryApi,
+    fetchAllocationHistoryApi,
+    fetchConnectionsApi,
+    disconnectItemApi,
+    fetchPortfolioAllocationApi,
+    fetchPortfolioAllocationDetailsApi,
+    fetchAllocationAccountsApi,
+    saveAllocationOverrideApi,
+    fetchTransactionFilterOptionsApi,
+    fetchMonthlyAnalysisApi,
+    fetchTravelAnalysisApi,
+    fetchRentalAnalysisApi
+} from './modules/api.js';
+import { 
+    loadAccounts, 
+    syncPlaidTransactions, 
+    handleDisconnect, 
+    linkNewBank,
+    renderAccountsList
+} from './modules/plaid-service.js';
+import { 
+    renderCategoryConfigView, 
+    addNewCategory, 
+    deleteCategory, 
+    onConfigRuleCategoryChange, 
+    addNewSubcategory, 
+    deleteSubcategory, 
+    saveCategoriesConfig 
+} from './modules/config-view.js';
+import { 
+    loadMergeCandidates, 
+    executeManualMerge, 
+    executePreciseMerge 
+} from './modules/merge-service.js';
+import { 
+    applyQuickTemplate, 
+    toggleCreatePanel, 
+    onCreateIsBChange, 
+    updateCreateSplitPreview, 
+    submitCreateManual, 
+    onCreateCategoryChange 
+} from './modules/creator-panel.js';
+import { 
+    renderTransactionsList, 
+    updateSplitPreview, 
+    submitTransactionReview, 
+    toggleTransactionConfirm, 
+    deleteTransaction, 
+    onRowCategoryChange 
+} from './modules/transaction-renderer.js';
+import { 
+    formatCurrency, 
+    enableResizableColumns,
+    initCustomMultiselects,
+    populateCategoryMultiselectOptions,
+    getMultiselectValues
+} from './modules/utils.js';
+
+// DOM READY Check
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => initApp());
+} else {
+    initApp();
+}
+
+async function safeFetch(promise, fallbackValue) {
+    try {
+        return await promise;
+    } catch (e) {
+        console.warn("Safe fetch failed:", e);
+        return fallbackValue;
+    }
+}
+
+function normalizeCategoryConfig(config) {
+    const normalized = config || { categories: [], rules: {} };
+    normalized.categories = (normalized.categories || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    return normalized;
+}
+
+async function initApp() {
+    const tStart = performance.now();
+    lucide.createIcons();
+
+    // 1. Setup static UI events and elements early so page is instantly responsive
+    setupRouting();
+    setupFilters();
+    setupSidebarCollapser();
+
+    // Show initial loading spinner in table
+    const tbody = document.getElementById("tx-tbody");
+    if (tbody) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                    <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
+                    <div>正在加载账单数据...</div>
+                </td>
+            </tr>
+        `;
+        lucide.createIcons();
+    }
+
+    try {
+        // 2. Fetch all configuration and transactions data in parallel to avoid sequential round-trips
+        const [config, txData, accounts, plaidStatus, connections] = await Promise.all([
+            safeFetch(fetchCategoriesConfig(), { categories: [], rules: {} }),
+            safeFetch(fetchTransactions(state.currentPage, state.limit, state.currentFilters), { transactions: [], total_pages: 1, page: 1, total_count: 0 }),
+            safeFetch(fetchAccountsApi(), []),
+            safeFetch(fetchCredentialsStatus(), { has_credentials: false, env: 'N/A', last_sync_time: 'N/A' }),
+            safeFetch(fetchConnectionsApi(), [])
+        ]);
+
+        // 3. Save loaded states
+        state.categoriesConfig = normalizeCategoryConfig(config);
+        state.transactions = txData.transactions || [];
+        state.totalPages = txData.total_pages || 1;
+        state.currentPage = txData.page || 1;
+        state.totalCount = txData.total_count || 0;
+        state.accounts = accounts || [];
+
+        // 4. Update dropdown filter categories
+        await updateCategoryFilterOptions();
+        await updateTransactionFilterOptions();
+
+        // 5. Render dashboard and tables
+        renderDashboard(state.accounts);
+        initializeNetWorthRangeControl();
+        initializeResponsiveChartResizing();
+        renderBalanceTrendChart();
+        renderAssetAllocationChart();
+        renderInstitutionAllocationDetails();
+        renderMonthlyAnalysis();
+        renderTravelAnalysis();
+        renderRentalAnalysis();
+        renderTransactionsList();
+        renderAccountsList(state.accounts);
+        renderPlaidConnections(state.accounts, connections);
+        renderCategoryConfigView();
+        enableResizableColumns();
+
+        // 6. Bind Plaid configuration elements using pre-fetched status
+        await checkPlaidConfiguration(plaidStatus);
+
+        const duration = performance.now() - tStart;
+        console.log(`[Performance] initApp completed in ${duration.toFixed(1)}ms`);
+        const badge = document.getElementById("load-time-badge");
+        if (badge) {
+            badge.textContent = `(加载用时: ${duration.toFixed(0)}ms)`;
+        }
+
+    } catch (err) {
+        console.error("Initialization error:", err);
+    }
+}
+
+export async function loadCategoriesConfig() {
+    try {
+        state.categoriesConfig = normalizeCategoryConfig(await fetchCategoriesConfig());
+    } catch (err) {
+        console.error("Failed to load categories config:", err);
+    }
+}
+
+export async function loadData() {
+    const tStart = performance.now();
+    const tbody = document.getElementById("tx-tbody");
+    if (tbody) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                    <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
+                    <div>正在加载账单数据...</div>
+                </td>
+            </tr>
+        `;
+        lucide.createIcons();
+    }
+    
+    try {
+        // Fetch paginated transactions, accounts, Plaid status, and active connections concurrently
+        const [txData, accounts, plaidStatus, connections] = await Promise.all([
+            safeFetch(fetchTransactions(state.currentPage, state.limit, state.currentFilters), { transactions: [], total_pages: 1, page: 1, total_count: 0 }),
+            safeFetch(fetchAccountsApi(), []),
+            safeFetch(fetchCredentialsStatus(), { has_credentials: false, env: 'N/A', last_sync_time: 'N/A' }),
+            safeFetch(fetchConnectionsApi(), [])
+        ]);
+        
+        state.transactions = txData.transactions || [];
+        state.totalPages = txData.total_pages || 1;
+        state.currentPage = txData.page || 1;
+        state.totalCount = txData.total_count || 0;
+        state.accounts = accounts;
+        
+        renderDashboard(accounts);
+        initializeNetWorthRangeControl();
+        renderBalanceTrendChart();
+        renderAssetAllocationChart();
+        renderInstitutionAllocationDetails();
+        renderMonthlyAnalysis();
+        renderTravelAnalysis();
+        renderRentalAnalysis();
+        renderTransactionsList();
+        renderAccountsList(accounts);
+        renderPlaidConnections(accounts, connections);
+        renderCategoryConfigView();
+        enableResizableColumns();
+        
+        await checkPlaidConfiguration(plaidStatus);
+
+        const duration = performance.now() - tStart;
+        console.log(`[Performance] loadData completed in ${duration.toFixed(1)}ms`);
+        const badge = document.getElementById("load-time-badge");
+        if (badge) {
+            badge.textContent = `(加载用时: ${duration.toFixed(0)}ms)`;
+        }
+    } catch (err) {
+        console.error("Error loading data from backend:", err);
+    }
+}
+
+function setupRouting() {
+    const navBtns = document.querySelectorAll(".nav-btn");
+    navBtns.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            const target = e.currentTarget.getAttribute("data-view");
+            if (target === "see-all") return;
+            window.location.hash = target;
+        });
+    });
+
+    window.addEventListener("hashchange", () => {
+        const view = window.location.hash.substring(1) || "dashboard";
+        switchView(view);
+    });
+
+    // Handle initial route
+    const initialView = window.location.hash.substring(1) || "dashboard";
+    switchView(initialView);
+}
+
+function switchView(viewName) {
+    document.querySelectorAll(".sidebar .nav-btn").forEach(btn => {
+        if (btn.getAttribute("data-view") === viewName) {
+            btn.classList.add("active");
+        } else {
+            btn.classList.remove("active");
+        }
+    });
+
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    const activeView = document.getElementById(`view-${viewName}`);
+    if (activeView) activeView.classList.add("active");
+
+    const headers = {
+        dashboard: { t: "Overview", d: "Track net worth, allocation, and synced account activity." },
+        "monthly-analysis": { t: "Spending Analysis", d: "Monthly and yearly income, expenses, and category trends." },
+        transactions: { t: "Transactions", d: "Review, search, and classify synced transactions." },
+        "travel-analysis": { t: "Travel Spend", d: "Trips, travel categories, and monthly travel spending." },
+        "rental-analysis": { t: "Rentals", d: "Property-level rental transactions and category summaries." },
+        settings: { t: "Plaid Settings", d: "Manage linked institutions and Plaid connection health." },
+        "category-config": { t: "Categories", d: "Manage transaction categories, subcategories, and mapping rules." }
+    };
+
+    if (headers[viewName]) {
+        document.getElementById("view-title").textContent = headers[viewName].t;
+        document.getElementById("view-description").textContent = headers[viewName].d;
+    }
+    
+    if (viewName === "category-config") {
+        renderCategoryConfigView();
+    }
+}
+
+async function checkPlaidConfiguration(preFetchedStatus = null) {
+    const credStatus = document.getElementById("settings-cred-status");
+    const envStatus = document.getElementById("settings-env-status");
+    const syncTimeEl = document.getElementById("settings-last-sync-time");
+    const linkBtn = document.getElementById("settings-link-btn");
+    const syncBtn = document.getElementById("settings-sync-btn");
+    const disconnectBtn = document.getElementById("settings-disconnect-btn");
+
+    if (!credStatus || !envStatus || !linkBtn || !syncBtn || !disconnectBtn) return;
+
+    try {
+        const status = preFetchedStatus || await fetchCredentialsStatus();
+        if (status.has_credentials) {
+            credStatus.textContent = "Configured";
+            credStatus.style.color = "var(--color-success)";
+            envStatus.textContent = (status.env || "N/A").toUpperCase();
+            envStatus.style.color = "var(--color-primary)";
+            if (syncTimeEl) {
+                syncTimeEl.textContent = status.last_sync_time || "N/A";
+                syncTimeEl.style.color = status.last_sync_time && status.last_sync_time !== "N/A" ? "var(--color-success)" : "var(--text-muted)";
+            }
+
+            linkBtn.removeAttribute("disabled");
+            syncBtn.removeAttribute("disabled");
+            disconnectBtn.removeAttribute("disabled");
+        } else {
+            credStatus.textContent = "Missing .env credentials";
+            credStatus.style.color = "var(--color-danger)";
+            envStatus.textContent = "N/A";
+            if (syncTimeEl) syncTimeEl.textContent = "N/A";
+        }
+    } catch (err) {
+        credStatus.textContent = "Server unavailable";
+        credStatus.style.color = "var(--color-danger)";
+    }
+
+    // Bind event handlers
+    linkBtn.onclick = () => linkNewBank();
+    syncBtn.onclick = () => syncPlaidTransactions();
+    disconnectBtn.onclick = () => handleDisconnect();
+}
+
+async function renderDashboard(accounts) {
+    const assetAccounts = accounts.filter(a => a.type === "depository" || a.type === "investment");
+    const netBalance = assetAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0);
+    
+    const cashBalEl = document.getElementById("dash-cash-balance");
+    if (cashBalEl) cashBalEl.textContent = formatCurrency(netBalance);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const monthPrefix = `${currentYear}-${currentMonth}`;
+
+    const monthIncEl = document.getElementById("dash-month-income");
+    const monthExpEl = document.getElementById("dash-month-expense");
+    try {
+        const data = await fetchMonthlyAnalysisApi();
+        const currentMonthRow = (data.months || []).find(row => row.month === monthPrefix);
+        if (monthIncEl) monthIncEl.textContent = formatCurrency(currentMonthRow?.income || 0);
+        if (monthExpEl) monthExpEl.textContent = formatCurrency(currentMonthRow?.expense || 0);
+    } catch (err) {
+        console.warn("Unable to load dashboard monthly totals:", err);
+        if (monthIncEl) monthIncEl.textContent = formatCurrency(0);
+        if (monthExpEl) monthExpEl.textContent = formatCurrency(0);
+    }
+}
+
+function guessBankName(accList) {
+    // 1. Scan across ALL accounts in this connection for known keywords
+    for (const acc of accList) {
+        const official = (acc.official_name || "").toLowerCase();
+        const name = (acc.name || "").toLowerCase();
+        
+        if (official.includes("discover") || name.includes("discover")) {
+            return "Discover";
+        }
+        if (official.includes("citi") || name.includes("citi") || 
+            official.includes("costco anywhere") || name.includes("costco anywhere")) {
+            return "Citi";
+        }
+        if (official.includes("wealthfront") || name.includes("wealthfront") || 
+            official.includes("individual cash") || name.includes("individual cash")) {
+            return "Wealthfront";
+        }
+        if (official.includes("chase") || name.includes("chase") || 
+            official.includes("jpmorgan") || name.includes("jpmorgan")) {
+            return "Chase";
+        }
+        if (official.includes("capital one") || name.includes("capital one") || 
+            official.includes("capitalone") || name.includes("capitalone")) {
+            return "Capital One";
+        }
+        if (official.includes("america") || name.includes("america") || 
+            official.includes("bofa") || name.includes("bofa") ||
+            official.includes("customized cash") || official.includes("relationship banking") ||
+            official.includes("advantage savings") || name.includes("advantage savings") ||
+            official.includes("southern california visa") || name.includes("southern california visa")) {
+            return "Bank of America";
+        }
+        if (official.includes("american express") || name.includes("american express") || 
+            official.includes("amex") || name.includes("amex")) {
+            return "American Express";
+        }
+    }
+    
+    // 2. Fallback to parsing the first account
+    const firstAcc = accList[0] || {};
+    const words = (firstAcc.official_name || firstAcc.name || "Bank Link").split(" ");
+    for (const w of words) {
+        const clean = w.replace(/[^a-zA-Z]/g, "").toLowerCase();
+        if (clean && !["customized", "individual", "advantage", "university", "relationship", "adv", "online", "savings", "checking"].includes(clean)) {
+            return w;
+        }
+    }
+    return words[0] || "Bank Link";
+}
+
+function escapeJsString(value) {
+    return String(value ?? "")
+        .replaceAll("\\", "\\\\")
+        .replaceAll("'", "\\'")
+        .replaceAll("\n", " ")
+        .replaceAll("\r", " ");
+}
+
+function plaidWarningMessage(connInfo) {
+    const raw = String(connInfo?.error_message || "");
+    if (connInfo?.status === "error_consent" || raw.includes("ADDITIONAL_CONSENT_REQUIRED")) {
+        if (!connInfo?.has_investments) return "";
+        return "Plaid says this investment connection has not granted Investments access. Relink to grant the investments product.";
+    }
+    if (connInfo?.status === "error_login" || raw.includes("ITEM_LOGIN_REQUIRED")) {
+        return "Plaid says this bank login needs to be refreshed before sync can continue.";
+    }
+    const match = raw.match(/"error_message"\s*:\s*"([^"]+)"/);
+    if (match?.[1]) return match[1];
+    return raw.trim();
+}
+
+function renderPlaidWarningIcon(message) {
+    if (!message) return "";
+    return `<span class="settings-warning-icon" title="${escapeHtml(message)}"><i data-lucide="circle-alert"></i></span>`;
+}
+
+export async function reconnectItem(itemId) {
+    try {
+        const res = await fetch("/api/create_link_token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert("Unable to create an update-mode Link token: " + data.error);
+            return;
+        }
+        
+        const handler = Plaid.create({
+            token: data.link_token,
+            onSuccess: async (public_token, metadata) => {
+                alert("Institution authorization was refreshed. Reloading account data...");
+                await loadData();
+            },
+            onExit: (err, metadata) => {
+                if (err != null) {
+                    console.error("Plaid Update Mode Exit Error:", err);
+                }
+            }
+        });
+        handler.open();
+    } catch (e) {
+        alert("Unable to start update mode: " + e.message);
+    }
+}
+
+export async function disconnectItem(itemId, bankName) {
+    if (!confirm(`Disconnect [${bankName}]?\n\nThis stops future sync for this institution but keeps all synced transaction history and classifications. This cannot be undone from the app.`)) {
+        return;
+    }
+    
+    try {
+        const res = await disconnectItemApi(itemId);
+        if (res.status === "success") {
+            alert(`[${bankName}] was disconnected. Local transaction history was kept.`);
+            await loadData();
+        } else {
+            alert("Disconnect failed: " + res.error);
+        }
+    } catch (e) {
+        alert("Disconnect failed: " + e.message);
+    }
+}
+
+export async function deleteCachedAccounts(itemId, bankName) {
+    if (!confirm(`Clear local cache for [${bankName}]?\n\nWarning: this deletes local accounts, synced transactions, and reconciliation records for this institution. Use this only after a duplicate/relink cleanup. Legacy imported transactions are not affected.`)) {
+        return;
+    }
+    
+    try {
+        const res = await fetch("/api/delete_cached_accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+            alert(`[${bankName}] local cached accounts and transactions were cleared.`);
+            await loadData();
+        } else {
+            alert("Cache cleanup failed: " + data.error);
+        }
+    } catch (e) {
+        alert("Cache cleanup failed: " + e.message);
+    }
+}
+
+export async function replaceItemWithNewLink(oldItemId, bankName) {
+    if (!confirm(`Relink [${bankName}]?\n\nThis opens a new Plaid connection, syncs the new accounts, then migrates reviewed local history and clears the old cached accounts. If Plaid Link is cancelled, the old connection and data stay untouched.`)) {
+        return;
+    }
+
+    try {
+        const tokenRes = await fetch("/api/create_link_token", { method: "POST" });
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            alert("Unable to create a relink token: " + tokenData.error);
+            return;
+        }
+
+        const handler = Plaid.create({
+            token: tokenData.link_token,
+            onSuccess: async (public_token, metadata) => {
+                try {
+                    alert("New Plaid connection created. Exchanging token and syncing accounts...");
+
+                    const exchangeRes = await fetch("/api/exchange_public_token", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ public_token })
+                    });
+                    const exchangeData = await exchangeRes.json();
+                    if (exchangeData.status !== "success") {
+                        alert("Token exchange failed: " + (exchangeData.error || "Unknown error"));
+                        return;
+                    }
+
+                    const syncRes = await fetch("/api/sync_transactions", { method: "POST" });
+                    const syncData = await syncRes.json();
+                    if (syncData.status !== "success") {
+                        alert("New institution was linked, but sync failed: " + (syncData.error || "Unknown error"));
+                        await loadData();
+                        return;
+                    }
+
+                    const finalizeRes = await fetch("/api/finalize_relink", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            old_item_id: oldItemId,
+                            new_item_id: exchangeData.item_id
+                        })
+                    });
+                    const finalizeData = await finalizeRes.json();
+                    if (finalizeData.status !== "success") {
+                        alert("New accounts synced, but old-cache cleanup failed: " + (finalizeData.error || "Unknown error"));
+                        await loadData();
+                        return;
+                    }
+
+                    alert(`[${bankName}] relink complete. New transactions synced: ${syncData.new_transactions_count || 0}`);
+                    await loadData();
+                } catch (innerErr) {
+                    alert("Relink failed: " + innerErr.message);
+                    await loadData();
+                }
+            },
+            onExit: (err, metadata) => {
+                if (err != null) {
+                    console.error("Plaid replacement Link Exit Error:", err);
+                }
+            }
+        });
+        handler.open();
+    } catch (e) {
+        alert("Unable to start relink: " + e.message);
+    }
+}
+
+function renderPlaidConnections(accounts, connections = []) {
+    const card = document.getElementById("settings-connections-card");
+    const container = document.getElementById("settings-connections-container");
+
+    if (!card || !container) return;
+
+    const plaidAccounts = accounts.filter(acc => acc.account_id !== "Legacy");
+
+    if (plaidAccounts.length === 0 && connections.length === 0) {
+        card.style.display = "none";
+        return;
+    }
+
+    card.style.display = "block";
+    container.innerHTML = "";
+
+    const groups = {};
+    plaidAccounts.forEach(acc => {
+        const itemId = acc.item_id || "unknown";
+        if (!groups[itemId]) {
+            groups[itemId] = [];
+        }
+        groups[itemId].push(acc);
+    });
+
+    const connMap = {};
+    connections.forEach(c => {
+        connMap[c.item_id] = c;
+    });
+
+    const allItemIds = new Set([...Object.keys(groups), ...Object.keys(connMap)]);
+
+    let connIndex = 1;
+    for (const itemId of allItemIds) {
+        if (itemId === "unknown") continue;
+
+        const accList = groups[itemId] || [];
+        const isDisconnected = !connMap[itemId];
+        const connInfo = connMap[itemId] || { status: 'disconnected', institution_name: 'Bank Link' };
+
+        const connCard = document.createElement("div");
+        connCard.className = "settings-connection-card";
+        if (isDisconnected) {
+            connCard.classList.add("is-disconnected");
+        }
+
+        const bankName = connInfo.institution_name && connInfo.institution_name !== "Bank Link" 
+            ? connInfo.institution_name 
+            : (accList.length > 0 ? (accList[0].institution_name || guessBankName(accList)) : "Bank Link");
+        const bankNameArg = escapeJsString(bankName);
+
+        let statusBadgeHtml = '';
+        let noteHtml = '';
+        let buttonHtml = '';
+        let warningIconHtml = renderPlaidWarningIcon(plaidWarningMessage(connInfo));
+
+        if (isDisconnected) {
+            statusBadgeHtml = `<span class="settings-status-badge is-muted">Disconnected</span>`;
+            warningIconHtml = "";
+            noteHtml = `<div class="settings-connection-note"><i data-lucide="info"></i><span>Sync is stopped. Local accounts and transaction history are still kept.</span></div>`;
+            buttonHtml = `
+                <button class="pagination-btn settings-card-action is-primary" onclick="replaceItemWithNewLink('${itemId}', '${bankNameArg}')">
+                    <i data-lucide="plus"></i> Relink
+                </button>
+                <button class="pagination-btn settings-card-action is-danger" onclick="deleteCachedAccounts('${itemId}', '${bankNameArg}')">
+                    <i data-lucide="trash-2"></i> Clear cache
+                </button>
+            `;
+        } else {
+            if (connInfo.status === 'active') {
+                if (connInfo.has_investments) {
+                    const syncStatus = connInfo.holdings_sync_status || 'no_holdings';
+                    if (syncStatus === 'syncing' || syncStatus === 'pending') {
+                        statusBadgeHtml = `<span class="settings-status-badge is-pending"><i data-lucide="loader" class="spin"></i> Holdings syncing</span>`;
+                        noteHtml = `<div class="settings-connection-note is-info"><i data-lucide="info"></i><span>Plaid is still preparing investment holdings. First sync can take 10-15 minutes.</span></div>`;
+                    } else if (syncStatus === 'synced') {
+                        statusBadgeHtml = `<span class="settings-status-badge is-success"><i data-lucide="check"></i> Investments synced</span>`;
+                    } else if (syncStatus === 'no_holdings') {
+                        statusBadgeHtml = `<span class="settings-status-badge is-muted">No holdings</span>`;
+                        noteHtml = `<div class="settings-connection-note"><i data-lucide="info"></i><span>No security-level holdings were returned. Allocation falls back to account-level defaults/manual overrides.</span></div>`;
+                    } else if (syncStatus === 'failed') {
+                        statusBadgeHtml = `<span class="settings-status-badge is-danger">Holdings failed</span>`;
+                    } else {
+                        statusBadgeHtml = `<span class="settings-status-badge is-muted">${escapeHtml(syncStatus)}</span>`;
+                    }
+                } else {
+                    statusBadgeHtml = `<span class="settings-status-badge is-success">Connected</span>`;
+                }
+            } else if (connInfo.status === 'error_consent') {
+                statusBadgeHtml = connInfo.has_investments
+                    ? `<span class="settings-status-badge is-danger" title="Investments permission is missing">Investment auth needed</span>`
+                    : `<span class="settings-status-badge is-success">Connected</span>`;
+            } else if (connInfo.status === 'error_login') {
+                statusBadgeHtml = `<span class="settings-status-badge is-danger" title="Bank login is required">Login required</span>`;
+            } else {
+                statusBadgeHtml = `<span class="settings-status-badge is-danger">Error</span>`;
+            }
+
+            buttonHtml = `
+                <button class="pagination-btn settings-card-action is-primary" onclick="replaceItemWithNewLink('${itemId}', '${bankNameArg}')">
+                    <i data-lucide="refresh-cw"></i> Relink
+                </button>
+                <button class="pagination-btn settings-card-action is-danger" onclick="disconnectItem('${itemId}', '${bankNameArg}')">
+                    <i data-lucide="unlink"></i> Disconnect
+                </button>
+            `;
+        }
+
+        let html = `
+            <div class="settings-connection-header">
+                <div class="settings-connection-title">
+                    <i data-lucide="landmark"></i>
+                    <span>${escapeHtml(bankName)} #${connIndex}</span>
+                    ${statusBadgeHtml}
+                    ${warningIconHtml}
+                </div>
+                <span class="settings-connection-id">ID: ${escapeHtml(itemId.substring(0, 8))}...</span>
+            </div>
+            <div class="settings-account-list">
+        `;
+
+        if (accList.length === 0) {
+            html += `<div class="settings-empty-accounts">No synced accounts yet. Run Sync now after linking.</div>`;
+        } else {
+            accList.forEach(acc => {
+                const isCredit = acc.type === "credit";
+                const val = acc.balance_current || 0;
+                const displayVal = isCredit ? -val : val;
+                const prefix = displayVal < 0 ? "-" : "";
+                html += `
+                    <div class="settings-account-row">
+                        <div>
+                            <span>${escapeHtml(acc.name)}</span>
+                            <small>${escapeHtml(acc.subtype || acc.type || "account")}</small>
+                        </div>
+                        <strong>${prefix}${formatCurrency(displayVal)}</strong>
+                    </div>
+                `;
+            });
+        }
+
+        html += `
+            </div>
+            ${noteHtml}
+            <div class="settings-card-actions">
+                ${buttonHtml}
+            </div>
+        `;
+        connCard.innerHTML = html;
+        container.appendChild(connCard);
+        connIndex++;
+    }
+
+    lucide.createIcons();
+}
+
+window.reconnectItem = reconnectItem;
+window.disconnectItem = disconnectItem;
+window.deleteCachedAccounts = deleteCachedAccounts;
+
+let chartInstance = null;
+let netWorthTrendRange = "1Y";
+let netWorthTrendHistory = [];
+let netWorthTrendHistoryPromise = null;
+let allocationAccountsCache = null;
+let allocationAccountsPromise = null;
+
+async function fetchAllocationHistoryCached(force = false) {
+    if (force) {
+        netWorthTrendHistory = [];
+        netWorthTrendHistoryPromise = null;
+    }
+    if (netWorthTrendHistory.length) return netWorthTrendHistory;
+    if (!netWorthTrendHistoryPromise) {
+        netWorthTrendHistoryPromise = fetchAllocationHistoryApi()
+            .then(payload => {
+                netWorthTrendHistory = payload.history || [];
+                return netWorthTrendHistory;
+            })
+            .finally(() => {
+                netWorthTrendHistoryPromise = null;
+            });
+    }
+    return await netWorthTrendHistoryPromise;
+}
+
+async function fetchAllocationAccountsCached(force = false) {
+    if (force) {
+        allocationAccountsCache = null;
+        allocationAccountsPromise = null;
+    }
+    if (allocationAccountsCache) return allocationAccountsCache;
+    if (!allocationAccountsPromise) {
+        allocationAccountsPromise = fetchAllocationAccountsApi()
+            .then(payload => {
+                allocationAccountsCache = payload || {};
+                return allocationAccountsCache;
+            })
+            .finally(() => {
+                allocationAccountsPromise = null;
+            });
+    }
+    return await allocationAccountsPromise;
+}
+
+function filterTrendHistoryByRange(historyData, rangeKey) {
+    if (!historyData.length || rangeKey === "ALL") return historyData;
+    const lastTimestamp = Math.max(...historyData.map(row => new Date(`${row.date}T00:00:00`).getTime()));
+    const cutoff = new Date(lastTimestamp);
+    if (rangeKey === "1M") cutoff.setMonth(cutoff.getMonth() - 1);
+    if (rangeKey === "3M") cutoff.setMonth(cutoff.getMonth() - 3);
+    if (rangeKey === "1Y") cutoff.setFullYear(cutoff.getFullYear() - 1);
+    if (rangeKey === "5Y") cutoff.setFullYear(cutoff.getFullYear() - 5);
+    const cutoffTime = cutoff.getTime();
+    const filtered = historyData.filter(row => new Date(`${row.date}T00:00:00`).getTime() >= cutoffTime);
+    const prior = [...historyData]
+        .reverse()
+        .find(row => new Date(`${row.date}T00:00:00`).getTime() < cutoffTime);
+    return prior && filtered.length < 2 ? [prior, ...filtered] : filtered;
+}
+
+export async function renderBalanceTrendChart() {
+    const canvas = document.getElementById("balanceTrendChart");
+    if (!canvas) return;
+
+    try {
+        if (!netWorthTrendHistory.length) await fetchAllocationHistoryCached();
+        const historyData = filterTrendHistoryByRange(netWorthTrendHistory, netWorthTrendRange);
+        const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" });
+        const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+        const trendConfig = [
+            { key: "Net Worth", label: "Net Worth", color: "#10b981", fill: true, width: 3 },
+            { key: "Cash", label: "Cash", color: "#3b82f6" },
+            { key: "Stock", label: "Stock", color: "#22c55e" },
+            { key: "Bond", label: "Bond", color: "#f59e0b" },
+            { key: "Real Estate", label: "Real Estate", color: "#8b5cf6" }
+        ];
+        const datasets = trendConfig.map(cfg => ({
+            label: cfg.label,
+            data: historyData.map(row => ({
+                x: new Date(`${row.date}T00:00:00`).getTime(),
+                y: row[cfg.key] || 0,
+                date: row.date
+            })),
+            allocationColor: cfg.color,
+            borderColor: cfg.color,
+            backgroundColor: cfg.fill ? "rgba(16, 185, 129, 0.08)" : "transparent",
+            fill: !!cfg.fill,
+            tension: 0.3,
+            borderWidth: cfg.width || 2,
+            pointRadius: cfg.key === "Net Worth" ? 1.5 : 1,
+            pointHoverRadius: cfg.key === "Net Worth" ? 4 : 3,
+            pointHitRadius: 8,
+            pointBackgroundColor: cfg.color
+        }));
+        
+        // Render Chart.js
+        if (chartInstance) {
+            chartInstance.destroy();
+        }
+        
+        const ctx = canvas.getContext('2d');
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                parsing: false,
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'xy',
+                    intersect: false
+                },
+                onHover: (event, elements, chart) => {
+                    const activeDatasetIndex = elements.length ? elements[0].datasetIndex : null;
+                    chart.data.datasets.forEach((dataset, index) => {
+                        const color = dataset.allocationColor;
+                        const isActive = activeDatasetIndex === null || activeDatasetIndex === index;
+                        dataset.borderColor = isActive ? color : `${color}45`;
+                        dataset.pointBackgroundColor = isActive ? color : `${color}45`;
+                        dataset.borderWidth = isActive
+                            ? (index === 0 ? 4 : 3)
+                            : 1;
+                    });
+                    chart.update('none');
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#e2e8f0',
+                            font: { family: 'Inter' }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'nearest',
+                        intersect: false,
+                        callbacks: {
+                            title: function(context) {
+                                const raw = context[0]?.raw;
+                                return raw?.date || "";
+                            },
+                            label: function(context) {
+                                const label = context.dataset.label || "";
+                                return `${label}: ${currencyFormatter.format(context.parsed.y || 0)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#94a3b8',
+                            maxTicksLimit: 7,
+                            callback: function(value) {
+                                return dateFormatter.format(new Date(value));
+                            }
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: '#94a3b8',
+                            maxTicksLimit: 6,
+                            callback: function(value) {
+                                return currencyFormatter.format(value);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Error rendering balance trend chart:", e);
+    }
+}
+
+function initializeNetWorthRangeControl() {
+    const control = document.getElementById("net-worth-range-control");
+    if (!control || control.dataset.bound === "true") return;
+    control.dataset.bound = "true";
+    control.addEventListener("click", async (event) => {
+        const button = event.target.closest(".chart-range-btn");
+        if (!button) return;
+        netWorthTrendRange = button.dataset.range || "ALL";
+        control.querySelectorAll(".chart-range-btn").forEach(btn => {
+            btn.classList.toggle("active", btn === button);
+        });
+        await renderBalanceTrendChart();
+    });
+}
+
+let allocationChartInstance = null;
+let monthlyAnalysisChartInstance = null;
+let yearlyAnalysisChartInstance = null;
+let travelMonthlyChartInstance = null;
+let transactionFilterOptionsLoaded = false;
+let monthlyCashFlowRange = "1Y";
+let responsiveChartResizeBound = false;
+let travelTripsByKey = {};
+let rentalPropertiesByKey = {};
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+function formatPercent(value) {
+    return `${((value || 0) * 100).toFixed(1)}%`;
+}
+
+function filterMonthlyRowsByRange(rows, rangeKey) {
+    if (!rows.length || rangeKey === "ALL") return rows;
+    const monthCount = {
+        "3M": 3,
+        "6M": 6,
+        "1Y": 12,
+        "5Y": 60
+    }[rangeKey] || 12;
+    return rows.slice(-monthCount);
+}
+
+function resizeChartIfReady(chart) {
+    if (!chart) return;
+    requestAnimationFrame(() => {
+        try {
+            chart.resize();
+            chart.update('none');
+        } catch (e) {
+            console.warn("Chart resize failed:", e);
+        }
+    });
+}
+
+function resizeDashboardCharts() {
+    resizeChartIfReady(chartInstance);
+    resizeChartIfReady(allocationChartInstance);
+}
+
+function initializeResponsiveChartResizing() {
+    if (responsiveChartResizeBound) return;
+    responsiveChartResizeBound = true;
+
+    let resizeTimer = null;
+    const scheduleResize = () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(resizeDashboardCharts, 80);
+    };
+
+    window.addEventListener("resize", scheduleResize);
+    if (!("ResizeObserver" in window)) return;
+
+    const observer = new ResizeObserver(scheduleResize);
+    ["balanceTrendChart", "assetAllocationChart"].forEach(id => {
+        const canvas = document.getElementById(id);
+        const parent = canvas?.parentElement;
+        if (parent) observer.observe(parent);
+    });
+}
+
+function bindMonthlyCashFlowRangeControl() {
+    const control = document.getElementById("monthly-cash-flow-range-control");
+    if (!control || control.dataset.bound === "true") return;
+    control.dataset.bound = "true";
+    control.addEventListener("click", async (event) => {
+        const button = event.target.closest(".chart-range-btn");
+        if (!button) return;
+        monthlyCashFlowRange = button.dataset.range || "1Y";
+        control.querySelectorAll(".chart-range-btn").forEach(btn => {
+            btn.classList.toggle("active", btn === button);
+        });
+        await renderMonthlyAnalysis();
+    });
+}
+
+export async function renderAssetAllocationChart() {
+    const canvas = document.getElementById("assetAllocationChart");
+    if (!canvas) return;
+
+    try {
+        const data = (await fetchAllocationAccountsCached()).totals || {};
+        
+        const labels = [];
+        const values = [];
+        const colors = [];
+        
+        const categoryConfig = [
+            { key: "Cash", label: "Cash", color: "#3b82f6" },
+            { key: "Stock", label: "Stock", color: "#10b981" },
+            { key: "Bond", label: "Bond", color: "#f59e0b" },
+            { key: "Real Estate", label: "Real Estate", color: "#8b5cf6" }
+        ];
+        
+        categoryConfig.forEach(cat => {
+            const val = data[cat.key] || 0.0;
+            if (val > 0) {
+                labels.push(cat.label);
+                values.push(val);
+                colors.push(cat.color);
+            }
+        });
+
+        const summary = document.getElementById("portfolio-allocation-summary");
+        if (summary) {
+            summary.innerHTML = categoryConfig.map(cat => `
+                <div>
+                    <span>${cat.label}</span>
+                    <strong>$${formatCurrency(data[cat.key] || 0)}</strong>
+                </div>
+            `).join("");
+        }
+        
+        if (allocationChartInstance) {
+            allocationChartInstance.destroy();
+        }
+        
+        const ctx = canvas.getContext('2d');
+        allocationChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: colors,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.1)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#e2e8f0',
+                            font: { family: 'Inter', size: 10 },
+                            boxWidth: 12
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const val = context.parsed;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((val / total) * 100).toFixed(1);
+                                const formattedVal = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+                                return ` ${context.label}: ${formattedVal} (${percentage}%)`;
+                            }
+                        }
+                    }
+                },
+                cutout: '65%'
+            }
+        });
+    } catch (e) {
+        console.error("Error rendering asset allocation chart:", e);
+    }
+}
+
+export async function renderMonthlyAnalysis() {
+    const canvas = document.getElementById("monthlyAnalysisChart");
+    const yearlyCanvas = document.getElementById("yearlyAnalysisChart");
+    const tbody = document.getElementById("monthly-analysis-tbody");
+    if (!canvas || !tbody) return;
+
+    try {
+        bindMonthlyCashFlowRangeControl();
+        const data = await fetchMonthlyAnalysisApi();
+        const months = data.months || [];
+        const monthlyChartRows = filterMonthlyRowsByRange(months, monthlyCashFlowRange);
+        const yearly = data.yearly || [];
+        const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+        tbody.innerHTML = months.slice().reverse().map(row => `
+            <tr>
+                <td>${escapeHtml(row.month)}</td>
+                <td>${money.format(row.income || 0)}</td>
+                <td>${money.format(row.expense || 0)}</td>
+                <td>${money.format(row.expense_ex_mortgage || 0)}</td>
+                <td class="${(row.net_savings || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(row.net_savings || 0)}</td>
+                <td>${formatPercent(row.savings_rate || 0)}</td>
+            </tr>
+        `).join("");
+
+        const categoryHead = document.getElementById("monthly-category-thead");
+        const categoryBody = document.getElementById("monthly-category-tbody");
+        const categoryOrder = data.category_order || [];
+        const categoryMatrix = data.category_matrix || [];
+        if (categoryHead && categoryBody) {
+            categoryHead.innerHTML = `
+                <tr>
+                    <th>Month</th>
+                    ${categoryOrder.map(category => `<th>${escapeHtml(category)}</th>`).join("")}
+                </tr>
+            `;
+            categoryBody.innerHTML = categoryMatrix.slice().reverse().map(row => `
+                <tr>
+                    <td>${escapeHtml(row.month)}</td>
+                    ${categoryOrder.map(category => {
+                        const amount = (row.categories || {})[category] || 0;
+                        return `<td>${amount ? money.format(amount) : ""}</td>`;
+                    }).join("")}
+                </tr>
+            `).join("");
+        }
+
+        const yearlyBody = document.getElementById("yearly-analysis-tbody");
+        if (yearlyBody) {
+            yearlyBody.innerHTML = yearly.slice().reverse().map(row => `
+                <tr>
+                    <td>${escapeHtml(row.year)}</td>
+                    <td>${money.format(row.income || 0)}</td>
+                    <td>${money.format(row.expense || 0)}</td>
+                    <td>${money.format(row.expense_ex_mortgage || 0)}</td>
+                    <td class="${(row.net_savings || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(row.net_savings || 0)}</td>
+                    <td>${formatPercent(row.savings_rate || 0)}</td>
+                </tr>
+            `).join("");
+        }
+
+        const yearlyCategoryHead = document.getElementById("yearly-category-thead");
+        const yearlyCategoryBody = document.getElementById("yearly-category-tbody");
+        const yearlyCategoryOrder = data.yearly_category_order || [];
+        const yearlyCategoryMatrix = data.yearly_category_matrix || [];
+        if (yearlyCategoryHead && yearlyCategoryBody) {
+            yearlyCategoryHead.innerHTML = `
+                <tr>
+                    <th>Year</th>
+                    ${yearlyCategoryOrder.map(category => `<th>${escapeHtml(category)}</th>`).join("")}
+                </tr>
+            `;
+            yearlyCategoryBody.innerHTML = yearlyCategoryMatrix.slice().reverse().map(row => `
+                <tr>
+                    <td>${escapeHtml(row.year)}</td>
+                    ${yearlyCategoryOrder.map(category => {
+                        const amount = (row.categories || {})[category] || 0;
+                        return `<td>${amount ? money.format(amount) : ""}</td>`;
+                    }).join("")}
+                </tr>
+            `).join("");
+        }
+
+        if (monthlyAnalysisChartInstance) monthlyAnalysisChartInstance.destroy();
+        monthlyAnalysisChartInstance = new Chart(canvas.getContext("2d"), {
+            type: "bar",
+            data: {
+                labels: monthlyChartRows.map(row => row.month),
+                datasets: [
+                    { label: "Income", data: monthlyChartRows.map(row => row.income || 0), backgroundColor: "#10b981" },
+                    { label: "Expense", data: monthlyChartRows.map(row => row.expense || 0), backgroundColor: "#ef4444" },
+                    { label: "Net", data: monthlyChartRows.map(row => row.net_savings || 0), type: "line", borderColor: "#3b82f6", backgroundColor: "transparent", tension: 0.25 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: "#e2e8f0" } } },
+                scales: {
+                    x: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,0.05)" } },
+                    y: { ticks: { color: "#94a3b8", callback: value => money.format(value) }, grid: { color: "rgba(255,255,255,0.05)" } }
+                }
+            }
+        });
+
+        if (yearlyCanvas) {
+            if (yearlyAnalysisChartInstance) yearlyAnalysisChartInstance.destroy();
+            yearlyAnalysisChartInstance = new Chart(yearlyCanvas.getContext("2d"), {
+                type: "bar",
+                data: {
+                    labels: yearly.map(row => row.year),
+                    datasets: [
+                        { label: "Income", data: yearly.map(row => row.income || 0), backgroundColor: "#10b981" },
+                        { label: "Expense", data: yearly.map(row => row.expense || 0), backgroundColor: "#ef4444" },
+                        { label: "Net", data: yearly.map(row => row.net_savings || 0), type: "line", borderColor: "#3b82f6", backgroundColor: "transparent", tension: 0.25 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: "#e2e8f0" } } },
+                    scales: {
+                        x: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,0.05)" } },
+                        y: { ticks: { color: "#94a3b8", callback: value => money.format(value) }, grid: { color: "rgba(255,255,255,0.05)" } }
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Error rendering monthly analysis:", e);
+    }
+}
+
+export async function renderTravelAnalysis() {
+    const tripsHead = document.getElementById("travel-trips-thead");
+    const tripsBody = document.getElementById("travel-trips-tbody");
+    if (!tripsHead || !tripsBody) return;
+
+    try {
+        const data = await fetchTravelAnalysisApi();
+        const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+        const categories = data.category_order || [];
+        travelTripsByKey = {};
+        tripsHead.innerHTML = `
+            <tr>
+                <th>Trip</th>
+                <th>Total Spend</th>
+                ${categories.map(category => `<th>${escapeHtml(category)}</th>`).join("")}
+            </tr>
+        `;
+
+        const rows = [];
+        (data.years || []).forEach(group => {
+            rows.push(`
+                <tr class="travel-year-row">
+                    <td>${escapeHtml(group.year)}</td>
+                    <td></td>
+                    ${categories.map(() => `<td></td>`).join("")}
+                </tr>
+            `);
+            (group.trips || []).forEach(trip => {
+                const tripKey = `${trip.year}::${trip.trip}`;
+                travelTripsByKey[tripKey] = trip;
+                rows.push(`
+                    <tr class="travel-trip-row" data-trip-key="${escapeHtml(tripKey)}">
+                        <td>
+                            <div class="allocation-primary">${escapeHtml(trip.trip)}</div>
+                            <div class="allocation-secondary">${escapeHtml(trip.last_date || "")}</div>
+                        </td>
+                        <td>${money.format(trip.total || 0)}</td>
+                        ${categories.map(category => {
+                            const amount = (trip.categories || {})[category] || 0;
+                            return `<td>${amount ? money.format(amount) : ""}</td>`;
+                        }).join("")}
+                    </tr>
+                `);
+            });
+        });
+        tripsBody.innerHTML = rows.join("") || `
+            <tr>
+                <td colspan="${categories.length + 2}" class="allocation-empty">No travel spending found.</td>
+            </tr>
+        `;
+        tripsBody.querySelectorAll(".travel-trip-row").forEach(row => {
+            row.addEventListener("click", () => {
+                tripsBody.querySelectorAll(".travel-trip-row").forEach(item => item.classList.toggle("selected", item === row));
+                renderTravelTripTransactions(row.dataset.tripKey);
+            });
+        });
+
+        const firstTripRow = tripsBody.querySelector(".travel-trip-row");
+        if (firstTripRow) {
+            firstTripRow.classList.add("selected");
+            renderTravelTripTransactions(firstTripRow.dataset.tripKey);
+        } else {
+            renderTravelTripTransactions("");
+        }
+    } catch (e) {
+        console.error("Error rendering travel analysis:", e);
+    }
+}
+
+function renderTravelAccountIcon(tx) {
+    let iconName = "landmark";
+    if (tx.account_type === "credit") iconName = "credit-card";
+    else if (tx.account_type === "depository") iconName = "wallet";
+    else if (tx.account_type === "loan") iconName = "home";
+    else if (tx.account_type === "investment") iconName = "trending-up";
+
+    if (tx.account_name === "Legacy" || tx.account_name_raw === "Legacy") {
+        return `<div class="account-icon-container" title="Legacy manual entry"><i data-lucide="edit-3" style="width:14px;height:14px;"></i></div>`;
+    }
+
+    const accountName = tx.account_name || tx.account_name_raw || "Unknown account";
+    const tooltipText = tx.institution_name ? `${tx.institution_name} - ${accountName}` : accountName;
+    return `<div class="account-icon-container" title="${escapeHtml(tooltipText)}"><i data-lucide="${iconName}" style="width:14px;height:14px;"></i></div>`;
+}
+
+function renderTravelTripTransactions(tripKey) {
+    const title = document.getElementById("travel-transactions-title");
+    const tbody = document.getElementById("travel-transactions-tbody");
+    if (!tbody) return;
+
+    const trip = travelTripsByKey[tripKey];
+    const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    if (!trip) {
+        if (title) title.textContent = "Trip Transactions";
+        tbody.innerHTML = `<tr><td colspan="6" class="allocation-empty">Select a trip to view transactions.</td></tr>`;
+        return;
+    }
+
+    if (title) title.textContent = `${trip.year} ${trip.trip} Transactions`;
+    tbody.innerHTML = (trip.transactions || []).map(tx => `
+        <tr>
+            <td>${escapeHtml(tx.date || "")}</td>
+            <td class="travel-account-cell">${renderTravelAccountIcon(tx)}</td>
+            <td>${escapeHtml(tx.merchant || "")}</td>
+            <td>${escapeHtml(tx.category || "Unclassified")}</td>
+            <td>${money.format(tx.amount || 0)}</td>
+            <td>${escapeHtml(tx.note || "")}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="6" class="allocation-empty">No transactions found for this trip.</td></tr>`;
+    lucide.createIcons();
+}
+
+export async function renderRentalAnalysis() {
+    const propertiesHead = document.getElementById("rental-properties-thead");
+    const propertiesBody = document.getElementById("rental-properties-tbody");
+    if (!propertiesHead || !propertiesBody) return;
+
+    try {
+        const data = await fetchRentalAnalysisApi();
+        const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+        const categories = data.category_order || [];
+        rentalPropertiesByKey = {};
+
+        propertiesHead.innerHTML = `
+            <tr>
+                <th>Property</th>
+                <th>Net</th>
+                <th>Income</th>
+                <th>Expense</th>
+                ${categories.map(category => `<th>${escapeHtml(category)}</th>`).join("")}
+            </tr>
+        `;
+
+        propertiesBody.innerHTML = (data.properties || []).map(property => {
+            const key = property.property || "Unassigned";
+            rentalPropertiesByKey[key] = property;
+            return `
+                <tr class="rental-property-row" data-property-key="${escapeHtml(key)}">
+                    <td>
+                        <div class="allocation-primary">${escapeHtml(property.property || "Unassigned")}</div>
+                        <div class="allocation-secondary">${escapeHtml(property.last_date || "")} · ${property.count || 0} transactions</div>
+                    </td>
+                    <td class="${(property.total || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(property.total || 0)}</td>
+                    <td class="amount-income">${money.format(property.income || 0)}</td>
+                    <td class="amount-expense">${money.format(property.expense || 0)}</td>
+                    ${categories.map(category => {
+                        const amount = (property.categories || {})[category] || 0;
+                        const className = amount >= 0 ? "amount-income" : "amount-expense";
+                        return `<td class="${amount ? className : ""}">${amount ? money.format(amount) : ""}</td>`;
+                    }).join("")}
+                </tr>
+            `;
+        }).join("") || `
+            <tr>
+                <td colspan="${categories.length + 4}" class="allocation-empty">No rental transactions found.</td>
+            </tr>
+        `;
+
+        propertiesBody.querySelectorAll(".rental-property-row").forEach(row => {
+            row.addEventListener("click", () => {
+                propertiesBody.querySelectorAll(".rental-property-row").forEach(item => item.classList.toggle("selected", item === row));
+                renderRentalPropertyDetails(row.dataset.propertyKey, categories);
+            });
+        });
+
+        const firstPropertyRow = propertiesBody.querySelector(".rental-property-row");
+        if (firstPropertyRow) {
+            firstPropertyRow.classList.add("selected");
+            renderRentalPropertyDetails(firstPropertyRow.dataset.propertyKey, categories);
+        } else {
+            renderRentalPropertyDetails("", categories);
+        }
+    } catch (e) {
+        console.error("Error rendering rental analysis:", e);
+    }
+}
+
+function renderRentalMatrixTable(head, body, label, rows, categories) {
+    const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+    if (!head || !body) return;
+
+    head.innerHTML = `
+        <tr>
+            <th>${escapeHtml(label)}</th>
+            <th>Net</th>
+            ${categories.map(category => `<th>${escapeHtml(category)}</th>`).join("")}
+        </tr>
+    `;
+    body.innerHTML = (rows || []).slice().reverse().map(row => `
+        <tr>
+            <td>${escapeHtml(row.month || row.year || "")}</td>
+            <td class="${(row.total || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(row.total || 0)}</td>
+            ${categories.map(category => {
+                const amount = (row.categories || {})[category] || 0;
+                const className = amount >= 0 ? "amount-income" : "amount-expense";
+                return `<td class="${amount ? className : ""}">${amount ? money.format(amount) : ""}</td>`;
+            }).join("")}
+        </tr>
+    `).join("") || `<tr><td colspan="${categories.length + 2}" class="allocation-empty">No summary data found.</td></tr>`;
+}
+
+function renderRentalPropertyDetails(propertyKey, categories) {
+    const title = document.getElementById("rental-transactions-title");
+    const summaryTitle = document.getElementById("rental-summary-title");
+    const tbody = document.getElementById("rental-transactions-tbody");
+    const monthlyHead = document.getElementById("rental-monthly-thead");
+    const monthlyBody = document.getElementById("rental-monthly-tbody");
+    const yearlyHead = document.getElementById("rental-yearly-thead");
+    const yearlyBody = document.getElementById("rental-yearly-tbody");
+    if (!tbody) return;
+
+    const property = rentalPropertiesByKey[propertyKey];
+    const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    if (!property) {
+        if (title) title.textContent = "Rental Transactions";
+        if (summaryTitle) summaryTitle.textContent = "Rental Summary";
+        tbody.innerHTML = `<tr><td colspan="5" class="allocation-empty">Select a property to view transactions.</td></tr>`;
+        renderRentalMatrixTable(monthlyHead, monthlyBody, "Month", [], categories || []);
+        renderRentalMatrixTable(yearlyHead, yearlyBody, "Year", [], categories || []);
+        return;
+    }
+
+    if (title) title.textContent = `${property.property} Transactions`;
+    if (summaryTitle) summaryTitle.textContent = `${property.property} Summary`;
+    tbody.innerHTML = (property.transactions || []).map(tx => {
+        const amount = tx.amount || 0;
+        return `
+            <tr>
+                <td>${escapeHtml(tx.date || "")}</td>
+                <td class="travel-account-cell">${renderTravelAccountIcon(tx)}</td>
+                <td>${escapeHtml(tx.merchant || "")}</td>
+                <td>${escapeHtml(tx.category || "Unclassified")}</td>
+                <td class="${amount >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(amount)}</td>
+            </tr>
+        `;
+    }).join("") || `<tr><td colspan="5" class="allocation-empty">No transactions found for this property.</td></tr>`;
+
+    renderRentalMatrixTable(monthlyHead, monthlyBody, "Month", property.monthly_matrix || [], categories || []);
+    renderRentalMatrixTable(yearlyHead, yearlyBody, "Year", property.yearly_matrix || [], categories || []);
+    lucide.createIcons();
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function renderBucketCells(categories) {
+    const buckets = categories || {};
+    return ["Cash", "Stock", "Bond", "Real Estate"].map(key => {
+        const val = buckets[key] || 0;
+        return `<td>$${formatCurrency(val)}</td>`;
+    }).join("");
+}
+
+export async function renderInstitutionAllocationDetails() {
+    const container = document.getElementById("institution-allocation-container");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="allocation-empty">
+            <i data-lucide="loader-2" class="spin"></i>
+            <span>Loading account allocation...</span>
+        </div>
+    `;
+    lucide.createIcons();
+
+    try {
+        const data = await fetchAllocationAccountsCached();
+        const accounts = data.accounts || [];
+        const totals = data.totals || {};
+
+        if (accounts.length === 0) {
+            container.innerHTML = `
+                <div class="allocation-empty">
+                    <i data-lucide="info"></i>
+                    <span>No allocatable accounts found.</span>
+                </div>
+            `;
+            lucide.createIcons();
+            return;
+        }
+
+        const sourceLabels = {
+            holdings: "Auto",
+            manual: "Manual",
+            default_cash: "Cash default",
+            manual_asset: "Manual asset",
+            auto: "Auto"
+        };
+
+        const groupedAccounts = accounts.reduce((groups, acc) => {
+            const key = acc.institution_name || "Unknown";
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(acc);
+            return groups;
+        }, {});
+
+        const accountRows = Object.keys(groupedAccounts).sort().map(institutionName => {
+            const group = groupedAccounts[institutionName];
+            const groupTotal = group.reduce((sum, acc) => sum + (acc.balance_current || 0), 0);
+            const bankRow = `
+            <tr class="allocation-bank-row">
+                <td colspan="9">
+                    <div class="allocation-bank-name">${escapeHtml(institutionName)}</div>
+                    <div class="allocation-bank-total">$${formatCurrency(groupTotal)}</div>
+                </td>
+            </tr>`;
+            const rows = group.map(acc => {
+                const pct = acc.percentages || {};
+                const id = escapeHtml(acc.account_id);
+                const manualDisabled = acc.source === "manual_asset" ? "disabled" : "";
+                return `
+            <tr>
+                <td>
+                    <div class="allocation-primary">${escapeHtml(acc.name || "Account")}</div>
+                    <div class="allocation-secondary">${escapeHtml([acc.type, acc.subtype].filter(Boolean).join(" / "))}</div>
+                </td>
+                <td><span class="allocation-source">${escapeHtml(sourceLabels[acc.source] || acc.source || "Auto")}</span></td>
+                <td>$${formatCurrency(acc.balance_current || 0)}</td>
+                ${renderBucketCells(acc.categories)}
+                <td class="allocation-percent-cell">
+                    <div class="allocation-percent-grid" data-account-id="${id}">
+                        ${["Cash", "Stock", "Bond", "Real Estate"].map(key => `
+                            <label>
+                                <span>${key}</span>
+                                <input type="number" min="0" max="100" step="1" value="${(pct[key] || 0).toFixed(0)}" data-category="${key}" ${manualDisabled}>
+                            </label>
+                        `).join("")}
+                    </div>
+                </td>
+                <td>
+                    <div class="allocation-actions">
+                        <button class="pagination-btn" onclick="saveAllocationOverride('${id}', event)" ${manualDisabled}>Save</button>
+                        <button class="pagination-btn" onclick="clearAllocationOverride('${id}', event)" ${manualDisabled}>Auto</button>
+                    </div>
+                </td>
+            </tr>`;
+            }).join("");
+            return bankRow + rows;
+        }).join("");
+
+        container.innerHTML = `
+            <div class="allocation-summary-row">
+                <div>
+                    <div class="allocation-primary">Account Allocation</div>
+                    <div class="allocation-secondary">Grouped by bank. Manual percentages override automatic holdings; accounts without holdings default to Cash.</div>
+                </div>
+                <div class="allocation-total">$${formatCurrency(Object.values(totals).reduce((sum, val) => sum + (val || 0), 0))}</div>
+            </div>
+            <div class="allocation-table-wrap">
+                <table class="allocation-table allocation-account-table">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>Source</th>
+                            <th>Balance</th>
+                            <th>Cash</th>
+                            <th>Stock</th>
+                            <th>Bond</th>
+                            <th>Real Estate</th>
+                            <th>Manual %</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>${accountRows}</tbody>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        console.error("Error rendering institution allocation details:", e);
+        container.innerHTML = `
+            <div class="allocation-empty allocation-error">
+                <i data-lucide="alert-circle"></i>
+                <span>Unable to load account allocation.</span>
+            </div>
+        `;
+    }
+
+    lucide.createIcons();
+}
+
+function readAllocationPercentages(accountId) {
+    const grid = document.querySelector(`.allocation-percent-grid[data-account-id="${CSS.escape(accountId)}"]`);
+    const percentages = {};
+    if (!grid) return percentages;
+    grid.querySelectorAll("input[data-category]").forEach(input => {
+        percentages[input.getAttribute("data-category")] = parseFloat(input.value) || 0;
+    });
+    return percentages;
+}
+
+export async function saveAllocationOverride(accountId, event) {
+    if (event) event.stopPropagation();
+    try {
+        await saveAllocationOverrideApi(accountId, readAllocationPercentages(accountId), false);
+        await Promise.all([
+            fetchAllocationHistoryCached(true),
+            fetchAllocationAccountsCached(true)
+        ]);
+        await renderBalanceTrendChart();
+        await renderAssetAllocationChart();
+        await renderInstitutionAllocationDetails();
+    } catch (e) {
+        alert("Failed to save allocation override: " + e.message);
+    }
+}
+
+export async function clearAllocationOverride(accountId, event) {
+    if (event) event.stopPropagation();
+    try {
+        await saveAllocationOverrideApi(accountId, {}, true);
+        await Promise.all([
+            fetchAllocationHistoryCached(true),
+            fetchAllocationAccountsCached(true)
+        ]);
+        await renderBalanceTrendChart();
+        await renderAssetAllocationChart();
+        await renderInstitutionAllocationDetails();
+    } catch (e) {
+        alert("Failed to clear allocation override: " + e.message);
+    }
+}
+
+export function triggerFilterUpdate() {
+    const searchInput = document.getElementById("tx-search-input");
+    const startDateInput = document.getElementById("tx-start-date");
+    const endDateInput = document.getElementById("tx-end-date");
+    const accountSelect = document.getElementById("tx-account-filter");
+    const amountInput = document.getElementById("tx-amount-filter");
+    state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
+    state.currentFilters.direction = getMultiselectValues("filter-direction-container");
+    state.currentFilters.category = getMultiselectValues("filter-category-container");
+    state.currentFilters.reviewed = getMultiselectValues("filter-reviewed-container");
+    state.currentFilters.startDate = startDateInput ? startDateInput.value : "";
+    state.currentFilters.endDate = endDateInput ? endDateInput.value : "";
+    state.currentFilters.account = accountSelect ? accountSelect.value : "all";
+    state.currentFilters.amount = amountInput ? amountInput.value.trim() : "";
+    
+    state.currentPage = 1;
+    loadData();
+}
+
+function getMonthDateRange(monthValue) {
+    if (!monthValue) return { start: "", end: "" };
+    const [year, month] = monthValue.split("-").map(Number);
+    if (!year || !month) return { start: "", end: "" };
+    const start = `${year}-${String(month).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const end = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    return { start, end };
+}
+
+function syncMonthFilterFromDates() {
+    const monthInput = document.getElementById("tx-month-filter");
+    const startDateInput = document.getElementById("tx-start-date");
+    const endDateInput = document.getElementById("tx-end-date");
+    if (!monthInput || !startDateInput || !endDateInput || !monthInput.value) return;
+
+    const { start, end } = getMonthDateRange(monthInput.value);
+    if (startDateInput.value !== start || endDateInput.value !== end) {
+        monthInput.value = "";
+    }
+}
+
+export async function updateCategoryFilterOptions() {
+    try {
+        const categories = state.categoriesConfig.categories;
+        populateCategoryMultiselectOptions(categories, triggerFilterUpdate);
+    } catch (e) {
+        console.error("Error setting category filter options:", e);
+    }
+}
+
+export async function updateTransactionFilterOptions() {
+    if (transactionFilterOptionsLoaded) return;
+    try {
+        const options = await fetchTransactionFilterOptionsApi();
+        const accountSelect = document.getElementById("tx-account-filter");
+        const monthInput = document.getElementById("tx-month-filter");
+        const startDateInput = document.getElementById("tx-start-date");
+        const endDateInput = document.getElementById("tx-end-date");
+        if (monthInput && options.min_date) monthInput.min = options.min_date.slice(0, 7);
+        if (monthInput && options.max_date) monthInput.max = options.max_date.slice(0, 7);
+        if (startDateInput && options.min_date) startDateInput.min = options.min_date;
+        if (startDateInput && options.max_date) startDateInput.max = options.max_date;
+        if (endDateInput && options.min_date) endDateInput.min = options.min_date;
+        if (endDateInput && options.max_date) endDateInput.max = options.max_date;
+        if (accountSelect) {
+            accountSelect.innerHTML = `<option value="all">All accounts</option>`;
+            (options.accounts || []).forEach(acc => {
+                const label = [acc.institution_name, acc.account_name].filter(Boolean).join(" / ") || acc.account_id;
+                const opt = document.createElement("option");
+                opt.value = acc.account_id;
+                opt.textContent = `${label} (${acc.tx_count})`;
+                accountSelect.appendChild(opt);
+            });
+        }
+        transactionFilterOptionsLoaded = true;
+    } catch (e) {
+        console.error("Error setting transaction filter options:", e);
+    }
+}
+
+function setupFilters() {
+    const searchInput = document.getElementById("tx-search-input");
+    if (searchInput) searchInput.oninput = triggerFilterUpdate;
+    const monthInput = document.getElementById("tx-month-filter");
+    const startDateInput = document.getElementById("tx-start-date");
+    const endDateInput = document.getElementById("tx-end-date");
+    const accountSelect = document.getElementById("tx-account-filter");
+    const amountInput = document.getElementById("tx-amount-filter");
+    if (monthInput) {
+        monthInput.onchange = () => {
+            const { start, end } = getMonthDateRange(monthInput.value);
+            if (startDateInput) startDateInput.value = start;
+            if (endDateInput) endDateInput.value = end;
+            triggerFilterUpdate();
+        };
+    }
+    if (startDateInput) {
+        startDateInput.onchange = () => {
+            syncMonthFilterFromDates();
+            triggerFilterUpdate();
+        };
+    }
+    if (endDateInput) {
+        endDateInput.onchange = () => {
+            syncMonthFilterFromDates();
+            triggerFilterUpdate();
+        };
+    }
+    if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
+    if (amountInput) amountInput.oninput = triggerFilterUpdate;
+    
+    initCustomMultiselects(triggerFilterUpdate);
+    
+    const firstBtn = document.getElementById("tx-first-btn");
+    const prevBtn = document.getElementById("tx-prev-btn");
+    const nextBtn = document.getElementById("tx-next-btn");
+    const lastBtn = document.getElementById("tx-last-btn");
+    
+    if (firstBtn) {
+        firstBtn.onclick = () => {
+            if (state.currentPage > 1) {
+                state.currentPage = 1;
+                loadData();
+            }
+        };
+    }
+    
+    if (prevBtn) {
+        prevBtn.onclick = () => {
+            if (state.currentPage > 1) {
+                state.currentPage--;
+                loadData();
+            }
+        };
+    }
+    
+    if (nextBtn) {
+        nextBtn.onclick = () => {
+            if (state.currentPage < state.totalPages) {
+                state.currentPage++;
+                loadData();
+            }
+        };
+    }
+    
+    if (lastBtn) {
+        lastBtn.onclick = () => {
+            if (state.currentPage < state.totalPages) {
+                state.currentPage = state.totalPages;
+                loadData();
+            }
+        };
+    }
+}
+
+function setupSidebarCollapser() {
+    const sidebarToggleBtn = document.getElementById("sidebar-toggle-btn");
+    const sidebar = document.querySelector(".sidebar");
+    
+    if (sidebarToggleBtn && sidebar) {
+        sidebarToggleBtn.onclick = (e) => {
+            if (e) e.stopPropagation();
+            sidebar.classList.toggle("collapsed");
+            const isCollapsed = sidebar.classList.contains("collapsed");
+            
+            const icon = sidebarToggleBtn.querySelector("i");
+            if (icon) {
+                icon.setAttribute("data-lucide", isCollapsed ? "chevron-right" : "chevron-left");
+                lucide.createIcons();
+            }
+            
+            localStorage.setItem("sidebar-collapsed", isCollapsed ? "1" : "0");
+        };
+        
+        if (localStorage.getItem("sidebar-collapsed") === "1") {
+            sidebar.classList.add("collapsed");
+            const icon = sidebarToggleBtn.querySelector("i");
+            if (icon) {
+                icon.setAttribute("data-lucide", "chevron-right");
+                lucide.createIcons();
+            }
+        }
+    }
+}
+
+// Expose review functions to global window context for inline HTML attributes
+window.updateSplitPreview = updateSplitPreview;
+window.submitTransactionReview = submitTransactionReview;
+window.toggleTransactionConfirm = toggleTransactionConfirm;
+window.deleteTransaction = deleteTransaction;
+window.executeManualMerge = executeManualMerge;
+window.executePreciseMerge = executePreciseMerge;
+window.setupSidebarCollapser = setupSidebarCollapser;
+window.toggleCreatePanel = toggleCreatePanel;
+window.onCreateIsBChange = onCreateIsBChange;
+window.updateCreateSplitPreview = updateCreateSplitPreview;
+window.applyQuickTemplate = applyQuickTemplate;
+window.submitCreateManual = submitCreateManual;
+window.renderCategoryConfigView = renderCategoryConfigView;
+window.addNewCategory = addNewCategory;
+window.deleteCategory = deleteCategory;
+window.onConfigRuleCategoryChange = onConfigRuleCategoryChange;
+window.addNewSubcategory = addNewSubcategory;
+window.deleteSubcategory = deleteSubcategory;
+window.onRowCategoryChange = onRowCategoryChange;
+window.onCreateCategoryChange = onCreateCategoryChange;
+window.saveCategoriesConfig = saveCategoriesConfig;
+window.renderBalanceTrendChart = renderBalanceTrendChart;
+window.renderAssetAllocationChart = renderAssetAllocationChart;
+window.saveAllocationOverride = saveAllocationOverride;
+window.clearAllocationOverride = clearAllocationOverride;
+window.loadData = loadData;
+window.linkNewBank = linkNewBank;
+window.replaceItemWithNewLink = replaceItemWithNewLink;
+
+window.confirmInternalTransfer = async function(txId1, txId2, event) {
+    if (event) event.stopPropagation();
+    if (!confirm("确定要将这两笔交易合并确认为内部转账吗？\n（这会自动将两笔交易归类为 'Internal Transfer' 并设为已对账）")) return;
+    try {
+        const res = await confirmTransferApi(txId1, txId2);
+        if (res.status === "success") {
+            alert("已成功确认为内部转账！");
+            await loadData();
+        } else {
+            alert("确认失败: " + res.error);
+        }
+    } catch (err) {
+        alert("错误: " + err.message);
+    }
+};
+

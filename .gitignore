@@ -1,0 +1,37 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Local financial data
+finance.db
+finance.db-*
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Local archives and backups
+archived/
+backups/
+*.bak
+
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node/editor/system artifacts
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Antigravity/Codex local metadata
+.agents/

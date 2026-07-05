@@ -1,0 +1,521 @@
+﻿<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeowBillion</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Plaid Link SDK -->
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+    <!-- Chart.js -->
+    <script src="vendor/chart.umd.min.js?v=20260703212500"></script>
+    <link rel="stylesheet" href="styles.css?v=20260704010500">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand" style="position: relative;">
+                <div class="logo-icon">
+                    <i data-lucide="wallet-2" class="icon-pulse"></i>
+                </div>
+                <h2>MeowBillion</h2>
+                <button class="sidebar-toggle" id="sidebar-toggle-btn" title="Collapse menu">
+                    <i data-lucide="chevron-left" style="width:16px;height:16px;"></i>
+                </button>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-view="dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Overview</span>
+                </button>
+                <button class="nav-btn" data-view="monthly-analysis">
+                    <i data-lucide="bar-chart-3"></i>
+                    <span>Spending Analysis</span>
+                </button>
+                <button class="nav-btn" data-view="transactions">
+                    <i data-lucide="list-collapse"></i>
+                    <span>Transactions</span>
+                </button>
+                <button class="nav-btn" data-view="travel-analysis">
+                    <i data-lucide="plane"></i>
+                    <span>Travel Spend</span>
+                </button>
+                <button class="nav-btn" data-view="rental-analysis">
+                    <i data-lucide="home"></i>
+                    <span>Rentals</span>
+                </button>
+                <button class="nav-btn" data-view="category-config">
+                    <i data-lucide="tags"></i>
+                    <span>Categories</span>
+                </button>
+                <button class="nav-btn" data-view="settings">
+                    <i data-lucide="settings"></i>
+                    <span>Plaid Settings</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">M</div>
+                    <div class="user-info">
+                        <span class="user-name">MeowBillion</span>
+                        <span class="user-role">Personal finance workspace</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="content-header">
+                <div class="header-left">
+                    <h1 id="view-title">Overview</h1>
+                    <p id="view-description">Track net worth, allocation, and synced account activity.</p>
+                </div>
+            </header>
+
+            <!-- Viewports -->
+            <div class="viewport">
+                
+                <!-- VIEW 1: DASHBOARD -->
+                <section class="view active" id="view-dashboard">
+                    <!-- Metrics row -->
+                    <div class="metrics-grid">
+                        <div class="card metric-card accent-primary">
+                            <div class="card-header">
+                                <span class="card-label">Linked Assets</span>
+                                <div class="card-icon"><i data-lucide="landmark"></i></div>
+                            </div>
+                            <h2 class="card-value" id="dash-cash-balance">$0.00</h2>
+                        </div>
+                        <div class="card metric-card accent-success">
+                            <div class="card-header">
+                                <span class="card-label">This Month Inflow</span>
+                                <div class="card-icon"><i data-lucide="trending-up"></i></div>
+                            </div>
+                            <h2 class="card-value" id="dash-month-income">$0.00</h2>
+                        </div>
+                        <div class="card metric-card accent-danger">
+                            <div class="card-header">
+                                <span class="card-label">This Month Outflow</span>
+                                <div class="card-icon"><i data-lucide="trending-down"></i></div>
+                            </div>
+                            <h2 class="card-value" id="dash-month-expense">$0.00</h2>
+                        </div>
+                    </div>
+                    
+                    <!-- Charts Layout -->
+                    <div class="dashboard-grid overview-chart-grid">
+                        <!-- Balance History Chart Card -->
+                        <div class="card" style="margin-top: 0;">
+                            <div class="card-title-bar">
+                                <h3>Net Worth & Allocation Trend</h3>
+                                <div class="chart-range-control" id="net-worth-range-control" aria-label="Trend range">
+                                    <button class="chart-range-btn" data-range="1M">1M</button>
+                                    <button class="chart-range-btn" data-range="3M">3M</button>
+                                    <button class="chart-range-btn active" data-range="1Y">1Y</button>
+                                    <button class="chart-range-btn" data-range="5Y">5Y</button>
+                                    <button class="chart-range-btn" data-range="ALL">All</button>
+                                </div>
+                            </div>
+                            <div class="overview-chart-panel">
+                                <canvas id="balanceTrendChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Asset Allocation Doughnut Chart Card -->
+                        <div class="card" style="margin-top: 0;">
+                            <div class="card-title-bar">
+                                <h3>Portfolio Allocation</h3>
+                            </div>
+                            <div class="overview-chart-panel overview-donut-panel">
+                                <canvas id="assetAllocationChart"></canvas>
+                            </div>
+                            <div id="portfolio-allocation-summary" class="allocation-buckets allocation-buckets-compact"></div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-title-bar">
+                            <h3>Account Allocation</h3>
+                        </div>
+                        <div id="institution-allocation-container" class="institution-allocation-container">
+                            <!-- Dynamic Fidelity allocation details -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 2: SPENDING ANALYSIS -->
+                <section class="view" id="view-monthly-analysis">
+                    <div class="analysis-grid">
+                        <div class="card">
+                            <div class="card-title-bar">
+                                <h3>Monthly Cash Flow</h3>
+                                <div class="chart-range-control" id="monthly-cash-flow-range-control" aria-label="Monthly cash flow range">
+                                    <button class="chart-range-btn" data-range="3M">3M</button>
+                                    <button class="chart-range-btn" data-range="6M">6M</button>
+                                    <button class="chart-range-btn active" data-range="1Y">1Y</button>
+                                    <button class="chart-range-btn" data-range="5Y">5Y</button>
+                                    <button class="chart-range-btn" data-range="ALL">All</button>
+                                </div>
+                            </div>
+                            <div class="analysis-chart"><canvas id="monthlyAnalysisChart"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title-bar"><h3>Monthly Summary</h3></div>
+                            <div class="analysis-table-wrap analysis-panel-scroll">
+                                <table class="analysis-table">
+                                    <thead><tr><th>Month</th><th>Income</th><th>Expense</th><th>Expense excl. Mortgage</th><th>Net</th><th>Rate</th></tr></thead>
+                                    <tbody id="monthly-analysis-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-title-bar"><h3>Monthly Category Spending</h3></div>
+                        <div class="analysis-table-wrap analysis-table-wide">
+                            <table class="analysis-table monthly-category-table" id="monthly-category-table">
+                                <thead id="monthly-category-thead"></thead>
+                                <tbody id="monthly-category-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="analysis-grid mt-4">
+                        <div class="card">
+                            <div class="card-title-bar"><h3>Yearly Cash Flow</h3></div>
+                            <div class="analysis-chart"><canvas id="yearlyAnalysisChart"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title-bar"><h3>Yearly Summary</h3></div>
+                            <div class="analysis-table-wrap analysis-panel-scroll">
+                                <table class="analysis-table">
+                                    <thead><tr><th>Year</th><th>Income</th><th>Expense</th><th>Expense excl. Mortgage</th><th>Net</th><th>Rate</th></tr></thead>
+                                    <tbody id="yearly-analysis-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-title-bar"><h3>Yearly Category Spending</h3></div>
+                        <div class="analysis-table-wrap analysis-table-wide">
+                            <table class="analysis-table monthly-category-table" id="yearly-category-table">
+                                <thead id="yearly-category-thead"></thead>
+                                <tbody id="yearly-category-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 3: TRANSACTIONS LIST -->
+                <section class="view" id="view-transactions">
+                    <!-- Filters -->
+                    <div class="card filter-card">
+                        <div class="search-box">
+                            <i data-lucide="search"></i>
+                            <input type="text" id="tx-search-input" placeholder="Search merchant, category, note...">
+                        </div>
+
+                        <div class="date-filter-pair">
+                            <input type="month" id="tx-month-filter" class="filter-select" title="Month">
+                            <input type="date" id="tx-start-date" class="filter-select" title="Start date">
+                            <input type="date" id="tx-end-date" class="filter-select" title="End date">
+                        </div>
+
+                        <select id="tx-account-filter" class="filter-select tx-account-filter">
+                            <option value="all">All accounts</option>
+                        </select>
+
+                        <input type="text" id="tx-amount-filter" class="filter-select tx-amount-filter" placeholder="Amount: 100, 50-200, >500">
+
+                        <!-- Multi-select: Category -->
+                        <div class="custom-multiselect" id="filter-category-container">
+                            <button class="multiselect-btn" id="category-btn">
+                                <span>All categories</span>
+                                <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
+                            </button>
+                            <div class="multiselect-dropdown">
+                                <div class="multiselect-search">
+                                    <input type="text" placeholder="Search categories..." class="dropdown-search-input">
+                                </div>
+                                <div class="multiselect-actions">
+                                    <span class="action-link select-all">Select all</span>
+                                    <span class="action-link clear-all">Clear</span>
+                                </div>
+                                <div class="multiselect-options" id="category-options-list">
+                                    <!-- Populated dynamically -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Multi-select: Reviewed Status -->
+                        <div class="custom-multiselect" id="filter-reviewed-container">
+                            <button class="multiselect-btn" id="reviewed-btn">
+                                <span>All review states</span>
+                                <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
+                            </button>
+                            <div class="multiselect-dropdown">
+                                <div class="multiselect-actions">
+                                    <span class="action-link select-all">Select all</span>
+                                    <span class="action-link clear-all">Clear</span>
+                                </div>
+                                <div class="multiselect-options">
+                                    <label><input type="checkbox" value="unreviewed_plaid" checked> Needs review</label>
+                                    <label><input type="checkbox" value="manually_reviewed" checked> Manually reviewed</label>
+                                    <label><input type="checkbox" value="legacy_matched" checked> Legacy matched</label>
+                                    <label><input type="checkbox" value="legacy_imported" checked> Legacy imported</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detail Table -->
+                    <div class="card mt-4">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 100px;">Date</th>
+                                        <th style="width: 60px; text-align: center;">Account</th>
+                                        <th style="min-width: 200px;">Merchant / Description</th>
+                                        <th style="width: 90px; text-align: right;">Amount</th>
+                                        <th style="width: 140px;">Category</th>
+                                        <th style="width: 110px;">Subcategory</th>
+                                        <th style="width: 130px;">Note</th>
+                                        <th style="width: 100px; text-align: center;">Review</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tx-tbody">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Pagination Panel -->
+                        <div class="pagination-container">
+                            <button class="pagination-btn" id="tx-first-btn" title="Collapse menu" disabled>
+                                <i data-lucide="chevrons-left"></i> First
+                            </button>
+                            <button class="pagination-btn" id="tx-prev-btn" disabled>
+                                <i data-lucide="chevron-left"></i> Prev
+                            </button>
+                            <span class="pagination-info" id="tx-page-info">Page 1 / 1</span>
+                            <span id="load-time-badge" style="font-size: 11px; color: var(--text-muted); margin-left: 12px;"></span>
+                            <button class="pagination-btn" id="tx-next-btn" disabled>
+                                Next <i data-lucide="chevron-right"></i>
+                            </button>
+                            <button class="pagination-btn" id="tx-last-btn" title="Collapse menu" disabled>
+                                Last <i data-lucide="chevrons-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 4: TRAVEL ANALYSIS -->
+                <section class="view" id="view-travel-analysis">
+                    <div class="card">
+                        <div class="card-title-bar"><h3>Trips</h3></div>
+                        <div class="analysis-table-wrap analysis-table-wide">
+                            <table class="analysis-table travel-trip-table">
+                                <thead id="travel-trips-thead"></thead>
+                                <tbody id="travel-trips-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-title-bar"><h3 id="travel-transactions-title">Trip Transactions</h3></div>
+                        <div class="analysis-table-wrap">
+                            <table class="analysis-table travel-transaction-table">
+                                <thead>
+                                    <tr><th>Date</th><th>Account</th><th>Merchant</th><th>Category</th><th>Spend</th><th>Note</th></tr>
+                                </thead>
+                                <tbody id="travel-transactions-tbody">
+                                    <tr><td colspan="6" class="allocation-empty">Select a trip to view transactions.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 5: RENTAL ANALYSIS -->
+                <section class="view" id="view-rental-analysis">
+                    <div class="card">
+                        <div class="card-title-bar"><h3>Rental Properties</h3></div>
+                        <div class="analysis-table-wrap analysis-table-wide">
+                            <table class="analysis-table rental-property-table">
+                                <thead id="rental-properties-thead"></thead>
+                                <tbody id="rental-properties-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="analysis-grid mt-4">
+                        <div class="card">
+                            <div class="card-title-bar"><h3 id="rental-transactions-title">Rental Transactions</h3></div>
+                            <div class="analysis-table-wrap analysis-panel-scroll">
+                                <table class="analysis-table rental-transaction-table">
+                                    <thead>
+                                        <tr><th>Date</th><th>Account</th><th>Merchant</th><th>Category</th><th>Amount</th></tr>
+                                    </thead>
+                                    <tbody id="rental-transactions-tbody">
+                                        <tr><td colspan="5" class="allocation-empty">Select a property to view transactions.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title-bar"><h3 id="rental-summary-title">Rental Summary</h3></div>
+                            <div class="analysis-table-wrap analysis-panel-scroll rental-summary-wrap">
+                                <table class="analysis-table rental-summary-table">
+                                    <thead id="rental-monthly-thead"></thead>
+                                    <tbody id="rental-monthly-tbody"></tbody>
+                                </table>
+                                <table class="analysis-table rental-summary-table mt-4">
+                                    <thead id="rental-yearly-thead"></thead>
+                                    <tbody id="rental-yearly-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 6: SETTINGS / CREDENTIALS -->
+                <section class="view" id="view-settings">
+                    <div class="settings-layout">
+                        <div class="card settings-health-card">
+                            <div>
+                                <h3>Connection Health</h3>
+                                <p class="settings-card-subtitle">Manage Plaid credentials, bank links, and transaction sync.</p>
+                            </div>
+
+                            <div class="settings-status-grid">
+                                <div class="settings-status-item">
+                                    <span>API credentials</span>
+                                    <strong id="settings-cred-status">Checking...</strong>
+                                </div>
+                                <div class="settings-status-item">
+                                    <span>Environment</span>
+                                    <strong id="settings-env-status">N/A</strong>
+                                </div>
+                                <div class="settings-status-item">
+                                    <span>Last sync</span>
+                                    <strong id="settings-last-sync-time">N/A</strong>
+                                </div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <button class="sync-btn settings-btn-secondary" id="settings-link-btn" disabled>
+                                    <i data-lucide="link"></i> Link bank
+                                </button>
+                                <button class="sync-btn" id="settings-sync-btn" disabled>
+                                    <i data-lucide="refresh-cw"></i> Sync now
+                                </button>
+                                <button class="sync-btn settings-btn-danger" id="settings-disconnect-btn" disabled>
+                                    <i data-lucide="trash-2"></i> Disconnect all
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="card settings-connections-card" id="settings-connections-card" style="display:none;">
+                            <div class="card-title-bar">
+                                <div>
+                                    <h3>Linked Institutions</h3>
+                                    <p class="settings-card-subtitle">Grouped by Plaid connection. Disconnecting stops future sync but keeps local transaction history.</p>
+                                </div>
+                            </div>
+                            <div id="settings-connections-container" class="settings-connections-grid">
+                                <!-- Dynamic connections list -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- VIEW 6: CATEGORY CONFIG -->
+                <section class="view" id="view-category-config">
+                    <div class="grid-2 category-config-grid">
+                        <!-- Card 1: Manage Categories -->
+                        <div class="card config-card">
+                            <div class="config-card-header">
+                                <h3>Transaction Categories</h3>
+                                <p>Manage the top-level categories used for review, filters, and reporting.</p>
+                            </div>
+                            
+                            <div class="config-control-panel">
+                                <div class="config-input-row">
+                                    <input type="text" id="new-category-input" class="filter-select config-text-input" placeholder="New category name...">
+                                    <button class="sync-btn config-action-btn" onclick="addNewCategory()">
+                                    <i data-lucide="plus" style="width:14px;height:14px;"></i> Add category
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="config-list-panel config-list-panel-tall">
+                                <ul id="config-categories-list" class="config-list">
+                                    <!-- Dynamic categories list -->
+                                </ul>
+                            </div>
+
+                            <div class="config-actions">
+                                <button class="sync-btn config-action-btn" id="btn-save-categories-list" onclick="saveCategoriesConfig('btn-save-categories-list')">
+                                    <i data-lucide="save" style="width:14px;height:14px;"></i> Save categories
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Card 2: Manage Subcategories -->
+                        <div class="card config-card">
+                            <div class="config-card-header">
+                                <h3>Subcategory Rules</h3>
+                                <p>Configure the subcategory options available under each top-level category.</p>
+                            </div>
+                            
+                            <div class="config-control-panel">
+                                <div class="config-select-row">
+                                    <span>Category</span>
+                                    <select id="config-rule-category-select" class="filter-select config-text-input" onchange="onConfigRuleCategoryChange()">
+                                        <!-- Options populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="config-input-row">
+                                    <input type="text" id="new-subcategory-input" class="filter-select config-text-input" placeholder="New subcategory name...">
+                                    <button class="sync-btn config-action-btn" onclick="addNewSubcategory()">
+                                        <i data-lucide="plus" style="width:14px;height:14px;"></i> Add subcategory
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div id="config-subcategories-container" class="config-list-panel">
+                                <ul id="config-subcategories-list" class="config-list">
+                                    <!-- Dynamic subcategories list -->
+                                </ul>
+                            </div>
+                            
+                            <div class="config-actions">
+                                <button class="sync-btn config-action-btn" id="btn-save-subcategories-config" onclick="saveCategoriesConfig('btn-save-subcategories-config')">
+                                    <i data-lucide="save" style="width:14px;height:14px;"></i> Save subcategories
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Application Script -->
+    <script type="module" src="app.js?v=20260704010500"></script>
+</body>
+</html>
+
