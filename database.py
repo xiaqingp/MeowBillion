@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import json
-from classifier import predict_custom_type
+from classifier import infer_transaction_classification_from_history, predict_custom_type
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finance.db')
 
@@ -158,15 +158,6 @@ def init_db():
         ''')
         conn.commit()
 
-        # Create indexes to optimize query and sort speed
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC, transaction_id DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_reviewed ON transactions(reviewed)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_direction ON transactions(direction)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
-        conn.commit()
-
         # Dynamic Schema Upgrades: Auto-migration check: add new columns if they do not exist
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(transactions)")
@@ -240,8 +231,15 @@ def init_db():
                     plaid_detailed = cats[1]
             except Exception as ex:
                 pass
-            predicted = predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == 'inflow')
-            conn.execute("UPDATE transactions SET type = ? WHERE transaction_id = ?", (predicted, tx_id))
+            learned = infer_transaction_classification_from_history(cursor, merchant, direction)
+            if learned:
+                conn.execute(
+                    "UPDATE transactions SET type = ?, subtype = ? WHERE transaction_id = ?",
+                    (learned["type"], learned["subtype"], tx_id)
+                )
+            else:
+                predicted = predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == 'inflow')
+                conn.execute("UPDATE transactions SET type = ? WHERE transaction_id = ?", (predicted, tx_id))
             
         # 5. Automatically detect and apply 'Internal Transfer' type for all unreviewed transactions (excluding legacy/manual ones)
         cursor.execute("SELECT transaction_id, date, amount, direction, account_name FROM transactions WHERE reviewed = 0 AND imported_from_legacy = 0 AND account_name != 'Legacy'")
@@ -249,7 +247,15 @@ def init_db():
         for r in all_unreviewed:
             tx_id, date, amount, direction, account_name = r
             detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name)
-            
+
+        # Create indexes after schema upgrades so a brand-new empty database has every indexed column.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC, transaction_id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_reviewed ON transactions(reviewed)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_direction ON transactions(direction)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
+
         conn.commit()
 
 def detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name):

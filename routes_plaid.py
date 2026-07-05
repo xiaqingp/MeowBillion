@@ -16,7 +16,7 @@ from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 from plaid.model.link_token_transactions import LinkTokenTransactions
 
 from database import get_db, detect_and_apply_transfer_type
-from classifier import predict_custom_type
+from classifier import infer_transaction_classification_from_history, predict_custom_type
 from routes_transactions import fetch_paginated_transactions
 
 plaid_bp = Blueprint('plaid', __name__)
@@ -44,6 +44,9 @@ ALLOCATION_CACHE_LOCK = threading.Lock()
 
 def empty_asset_buckets():
     return {key: 0.0 for key in ASSET_BUCKETS}
+
+def coerce_asset_bucket(bucket):
+    return bucket if bucket in ASSET_BUCKETS else 'Cash'
 
 def classify_security_bucket(security):
     sec_type = (security.get('type') or '').lower()
@@ -170,7 +173,12 @@ def buckets_from_percentages(balance, percentages):
 
 def normalize_account_asset_buckets(account_summary):
     balance = float(account_summary.get('balance_current') or 0.0)
-    buckets = account_summary.get('categories') or empty_asset_buckets()
+    raw_buckets = account_summary.get('categories') or {}
+    buckets = empty_asset_buckets()
+    for key, value in raw_buckets.items():
+        target_key = coerce_asset_bucket(key)
+        buckets[target_key] += float(value or 0.0)
+    account_summary['categories'] = buckets
     total = asset_bucket_total(buckets)
 
     if total <= 0:
@@ -629,7 +637,14 @@ def perform_sync():
                     payment_channel = tx.get('payment_channel', 'other')
                     
                     is_income = amount < 0
-                    custom_type = predict_custom_type(primary, detailed, merchant, is_income)
+                    direction = "inflow" if is_income else "outflow"
+                    learned_classification = infer_transaction_classification_from_history(cursor, merchant, direction)
+                    if learned_classification:
+                        custom_type = learned_classification["type"]
+                        custom_subtype = learned_classification["subtype"]
+                    else:
+                        custom_type = predict_custom_type(primary, detailed, merchant, is_income)
+                        custom_subtype = ''
                     
                     abs_amount = abs(amount)
                     ipay_val = abs_amount if is_income else -abs_amount
@@ -673,7 +688,7 @@ def perform_sync():
                                 custom_type, 
                                 merchant, 
                                 abs_amount, 
-                                "inflow" if is_income else "outflow",
+                                direction,
                                 pending,
                                 categories_json,
                                 location_json,
@@ -684,7 +699,7 @@ def perform_sync():
                                 ipay_val,
                                 bpay_val,
                                 0.0,
-                                '',
+                                custom_subtype,
                                 '',
                                 0
                             )
@@ -694,7 +709,7 @@ def perform_sync():
                             tx_id,
                             date_str,
                             abs_amount,
-                            "inflow" if is_income else "outflow",
+                            direction,
                             tx.get('account_id')
                         )
                         new_tx_count += 1
@@ -1171,7 +1186,7 @@ def get_portfolio_allocation_details():
 
                     inst = ensure_institution(item_id, acc.get('institution_name') or item_institution)
                     security = sec_map.get(h.get('security_id'), {})
-                    bucket = classify_security_bucket(security)
+                    bucket = coerce_asset_bucket(classify_security_bucket(security))
                     value = holding_market_value(h, security)
                     holdings_account_ids.add(account_id)
                     item_has_holdings = True
@@ -1261,10 +1276,10 @@ def get_portfolio_allocation_details():
             continue
         inst = ensure_institution(acc.get('item_id'), acc.get('institution_name'))
         balance = float(acc.get('balance_current') or 0.0)
-        inst["categories"]["Unclassified"] += balance
+        inst["categories"]["Cash"] += balance
         for account_summary in inst["accounts"]:
             if account_summary.get("account_id") == acc.get('account_id'):
-                account_summary["categories"]["Unclassified"] += balance
+                account_summary["categories"]["Cash"] += balance
                 break
 
     result = []
@@ -1494,7 +1509,7 @@ def build_allocation_accounts_payload(use_cache=True):
                     if account_id not in accounts_by_id:
                         continue
                     security = sec_map.get(h.get('security_id'), {})
-                    bucket = classify_security_bucket(security)
+                    bucket = coerce_asset_bucket(classify_security_bucket(security))
                     value = holding_market_value(h, security)
                     account_buckets[account_id][bucket] += value
                     holdings_count_by_account[account_id] += 1
@@ -1725,13 +1740,7 @@ def get_portfolio_allocation():
     client = get_plaid_client()
     
     # Initialize categories
-    allocation = {
-        "Cash": 0.0,
-        "Stock": 0.0,
-        "Bond": 0.0,
-        "Real Estate": 0.0,
-        "Unclassified": 0.0
-    }
+    allocation = empty_asset_buckets()
     
     try:
         conn = get_db()
@@ -1777,25 +1786,7 @@ def get_portfolio_allocation():
                     
                     holdings_account_ids.add(acc_id)
                     
-                    sec_type = sec.get('type', '').lower()
-                    name = sec.get('name', '').lower()
-                    ticker = (sec.get('ticker_symbol') or '').lower()
-                    
-                    # Tickers or names matching sweep/cash/money market
-                    if sec_type in ['cash', 'money market'] or ticker in ['spaxx', 'fdrxx'] or 'sweep' in name or 'cash' in name:
-                        allocation['Cash'] += val
-                    elif sec_type == 'fixed income' or 'bond' in name or 'treasury' in name or 't-bill' in name or 'fixed income' in name:
-                        allocation['Bond'] += val
-                    elif sec_type in ['equity', 'cryptocurrency']:
-                        allocation['Stock'] += val
-                    elif sec_type in ['etf', 'mutual fund']:
-                        # Check for bond keywords in fund name
-                        if any(k in name for k in ['bond', 'treasury', 'fixed income', 't-bill', 'short-term', 'inflation', 'yield', 'corp', 'municipal']):
-                            allocation['Bond'] += val
-                        else:
-                            allocation['Stock'] += val
-                    else:
-                        allocation['Stock'] += val
+                    allocation[coerce_asset_bucket(classify_security_bucket(sec))] += val
                 
                 successful_holdings_item_ids.add(item_id)
                 
@@ -1894,8 +1885,7 @@ def get_portfolio_allocation():
         if acc_type == 'depository':
             allocation['Cash'] += val
         elif acc_type == 'investment':
-            # Strictly NO fallback ratios. Classify failed/unauthorized investment balances as Unclassified.
-            allocation['Unclassified'] += val
+            allocation['Cash'] += val
                 
     for asset in load_manual_asset_rows():
         for key in ASSET_BUCKETS:

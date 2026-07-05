@@ -95,5 +95,5 @@ if __name__ == '__main__':
     else:
         port = int(port)
 
-    print(f" * Plaid Tracker listening on: http://127.0.0.1:{port}")
+    print(f" * MeowBillion listening on: http://127.0.0.1:{port}")
     app.run(host='127.0.0.1', port=port, debug=True, use_reloader=False)
