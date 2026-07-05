@@ -16,7 +16,7 @@ from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 from plaid.model.link_token_transactions import LinkTokenTransactions
 
 from database import get_db, detect_and_apply_transfer_type
-from classifier import infer_transaction_classification_from_history, predict_custom_type
+from classifier import infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type
 from routes_transactions import fetch_paginated_transactions
 
 plaid_bp = Blueprint('plaid', __name__)
@@ -79,6 +79,43 @@ def holding_market_value(holding, security):
             if calculated > value * 10:
                 return calculated
     return value
+
+def merchant_names_match(left, right):
+    left_key = normalize_merchant_key(left)
+    right_key = normalize_merchant_key(right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    return left_key.startswith(right_key) or right_key.startswith(left_key)
+
+def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_id, date_str, auth_date_str):
+    if not merchant or not account_id or not date_str:
+        return None
+    cursor.execute(
+        """
+        SELECT transaction_id, date, authorized_date, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed,
+               imported_from_legacy, legacy_matched
+        FROM transactions
+        WHERE transaction_id != ?
+          AND pending = 1
+          AND account_name = ?
+          AND amount = ?
+          AND direction = ?
+          AND imported_from_legacy = 0
+          AND ABS(julianday(date) - julianday(?)) <= 3
+          AND (
+              COALESCE(authorized_date, date) = COALESCE(?, authorized_date, date)
+              OR ABS(julianday(COALESCE(authorized_date, date)) - julianday(COALESCE(?, date))) <= 3
+          )
+        ORDER BY reviewed DESC, date DESC
+        """,
+        (tx_id, account_id, amount, direction, date_str, auth_date_str, auth_date_str)
+    )
+    for row in cursor.fetchall():
+        if merchant_names_match(merchant, row['merchant']):
+            return row
+    return None
 
 def load_allocation_overrides():
     try:
@@ -649,6 +686,23 @@ def perform_sync():
                     abs_amount = abs(amount)
                     ipay_val = abs_amount if is_income else -abs_amount
                     bpay_val = 0.0
+                    pending_duplicate = None
+                    if pending == 0:
+                        pending_duplicate = find_pending_duplicate(
+                            cursor,
+                            tx_id,
+                            merchant,
+                            abs_amount,
+                            direction,
+                            tx.get('account_id'),
+                            date_str,
+                            auth_date_str
+                        )
+                        if pending_duplicate and int(pending_duplicate['reviewed'] or 0) == 1:
+                            custom_type = pending_duplicate['type'] or custom_type
+                            custom_subtype = pending_duplicate['subtype'] or custom_subtype
+                            ipay_val = float(pending_duplicate['ipay'] or ipay_val)
+                            bpay_val = float(pending_duplicate['bpay'] or bpay_val)
                     
                     cursor.execute(
                         "SELECT reviewed FROM transactions WHERE transaction_id = ?",
@@ -675,6 +729,11 @@ def perform_sync():
                             )
                         )
                     else:
+                        reviewed_val = int(pending_duplicate['reviewed'] or 0) if pending_duplicate else 0
+                        is_b_val = pending_duplicate['is_b'] if pending_duplicate else 'n'
+                        ratio_val = float(pending_duplicate['ratio'] or 1.0) if pending_duplicate else 1.0
+                        mown_val = float(pending_duplicate['mown'] or 0.0) if pending_duplicate else 0.0
+                        note_val = pending_duplicate['note'] if pending_duplicate else ''
                         cursor.execute(
                             """
                             INSERT INTO transactions 
@@ -694,24 +753,30 @@ def perform_sync():
                                 location_json,
                                 payment_channel,
                                 tx.get('account_id'),
-                                'n',
-                                1.0,
+                                is_b_val,
+                                ratio_val,
                                 ipay_val,
                                 bpay_val,
-                                0.0,
+                                mown_val,
+                                note_val,
                                 custom_subtype,
-                                '',
-                                0
+                                reviewed_val
                             )
                         )
-                        detect_and_apply_transfer_type(
-                            cursor,
-                            tx_id,
-                            date_str,
-                            abs_amount,
-                            direction,
-                            tx.get('account_id')
-                        )
+                        if pending_duplicate:
+                            cursor.execute(
+                                "DELETE FROM transactions WHERE transaction_id = ?",
+                                (pending_duplicate['transaction_id'],)
+                            )
+                        if reviewed_val == 0:
+                            detect_and_apply_transfer_type(
+                                cursor,
+                                tx_id,
+                                date_str,
+                                abs_amount,
+                                direction,
+                                tx.get('account_id')
+                            )
                         new_tx_count += 1
                 
                 has_more = res_dict.get('has_more', False)

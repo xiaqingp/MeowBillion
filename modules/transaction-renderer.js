@@ -118,8 +118,8 @@ export function renderTransactionsList() {
         tr.className = "tx-row";
         tr.id = `row-${t.TransactionID}`;
 
-        // --- Col 1: Date (prefer AuthorizedDate) ---
-        const authDateText = t.AuthorizedDate ? t.AuthorizedDate : t.Date;
+        // --- Col 1: Posted date ---
+        const dateText = t.Date || t.AuthorizedDate || "";
 
         // --- Col 2: Account icon based on AccountType ---
         let iconName = "landmark";
@@ -191,7 +191,7 @@ export function renderTransactionsList() {
 
         // --- Assemble row matching thead: 时间 | 账户 | 商家 | 金额 | 类别 | 子分类 | 备注 | 对账状态 ---
         tr.innerHTML = `
-            <td><strong>${authDateText}</strong></td>
+            <td><strong>${dateText}</strong></td>
             <td style="text-align: center;">${accountCellHtml}</td>
             <td>${merchantHtml}</td>
             <td class="${dirClass}" style="text-align: right; font-weight: 700;">${dirPrefix}${formatCurrency(t.Amount)}</td>
