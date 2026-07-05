@@ -629,7 +629,20 @@ def perform_sync():
                 res_dict = sync_res.to_dict()
                 
                 added = res_dict.get('added', [])
-                for tx in added:
+                modified = res_dict.get('modified', [])
+                removed = res_dict.get('removed', [])
+                added_ids = {tx.get('transaction_id') for tx in added}
+
+                for removed_tx in removed:
+                    removed_id = removed_tx.get('transaction_id')
+                    if not removed_id:
+                        continue
+                    cursor.execute(
+                        "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0",
+                        (removed_id,)
+                    )
+
+                for tx in added + modified:
                     tx_id = tx.get('transaction_id')
                     amount = float(tx.get('amount', 0))
                     
@@ -777,7 +790,8 @@ def perform_sync():
                                 direction,
                                 tx.get('account_id')
                             )
-                        new_tx_count += 1
+                        if tx_id in added_ids:
+                            new_tx_count += 1
                 
                 has_more = res_dict.get('has_more', False)
                 cursor_val = res_dict.get('next_cursor', '')
