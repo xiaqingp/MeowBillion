@@ -195,6 +195,14 @@ select:focus, input:focus, button:focus {
     color: var(--text-muted);
 }
 
+.version-meta {
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
 /* MAIN CONTENT */
 .main-content {
     flex: 1;

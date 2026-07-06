@@ -323,6 +323,7 @@ def monthly_analysis():
                                 THEN -COALESCE(ipay, 0) ELSE 0 END) AS living_expense
                 FROM transactions
                 WHERE date IS NOT NULL AND date != ''
+                  AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 7)
                 ORDER BY month ASC
@@ -336,6 +337,7 @@ def monthly_analysis():
                        SUM(-COALESCE(ipay, 0)) AS amount
                 FROM transactions
                 WHERE date IS NOT NULL AND date != ''
+                  AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('income', 'internal transfer', ?)
                 GROUP BY substr(date, 1, 7), COALESCE(type, 'Other')
                 HAVING ABS(amount) > 0.005
@@ -354,6 +356,7 @@ def monthly_analysis():
                                 THEN -COALESCE(ipay, 0) ELSE 0 END) AS expense_ex_mortgage
                 FROM transactions
                 WHERE date IS NOT NULL AND date != ''
+                  AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 4)
                 ORDER BY year ASC
@@ -500,6 +503,7 @@ def travel_analysis():
                 FROM transactions t
                 LEFT JOIN accounts a ON t.account_name = a.account_id
                 WHERE lower(COALESCE(t.type, '')) = ?
+                  AND COALESCE(t.pending, 0) = 0
                 ORDER BY t.date DESC
                 """,
                 (travel_category,)
@@ -633,6 +637,7 @@ def rental_analysis():
                 FROM transactions t
                 LEFT JOIN accounts a ON t.account_name = a.account_id
                 WHERE lower(COALESCE(t.type, '')) = ?
+                  AND COALESCE(t.pending, 0) = 0
                 ORDER BY t.date DESC
                 """,
                 (rental_category,)
