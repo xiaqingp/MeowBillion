@@ -114,22 +114,28 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             where_clauses.append(f"t.type IN ({placeholders})")
             params.extend(cats)
         
-    # Multi-select Reviewed Status (partitioning the DB into 4 exclusive states)
+    # Multi-select transaction status.
     if reviewed_filter and reviewed_filter != 'all':
         stats = [s.strip() for s in reviewed_filter.split(',') if s.strip()]
-        if stats and len(stats) < 4:
+        if "none" in stats:
+            where_clauses.append("1 = 0")
+        elif stats:
             status_clauses = []
             for s in stats:
-                if s == 'unreviewed_plaid' or s == 'unreviewed':
-                    status_clauses.append("t.reviewed = 0")
-                elif s == 'manually_reviewed':
-                    status_clauses.append("(t.reviewed = 1 AND t.imported_from_legacy = 0 AND t.legacy_matched = 0)")
+                if s in ('pending',):
+                    status_clauses.append("COALESCE(t.pending, 0) = 1")
+                elif s in ('needs_review', 'unreviewed_plaid', 'unreviewed'):
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND t.reviewed = 0)")
+                elif s in ('reviewed', 'manually_reviewed'):
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND t.reviewed = 1 AND t.imported_from_legacy = 0 AND t.legacy_matched = 0 AND COALESCE(t.account_name, '') != 'Legacy' AND lower(COALESCE(t.type, '')) != 'internal transfer')")
+                elif s == 'manual':
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND t.imported_from_legacy = 0 AND COALESCE(t.account_name, '') = 'Legacy')")
+                elif s == 'transfer':
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND lower(COALESCE(t.type, '')) = 'internal transfer')")
                 elif s == 'legacy_matched':
-                    status_clauses.append("t.legacy_matched = 1")
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND t.legacy_matched = 1)")
                 elif s == 'legacy_imported':
-                    status_clauses.append("(t.imported_from_legacy = 1 AND t.legacy_matched = 0)")
-                elif s == 'reviewed':
-                    status_clauses.append("t.reviewed = 1")
+                    status_clauses.append("(COALESCE(t.pending, 0) = 0 AND t.imported_from_legacy = 1 AND t.legacy_matched = 0)")
             if status_clauses:
                 where_clauses.append("(" + " OR ".join(status_clauses) + ")")
         
@@ -296,10 +302,60 @@ def transaction_filter_options():
                 ORDER BY institution_name, account_name
                 """
             ).fetchall()
+            status_counts = conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN COALESCE(pending, 0) = 1 THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN COALESCE(pending, 0) = 0 AND reviewed = 0 THEN 1 ELSE 0 END) AS needs_review,
+                    SUM(CASE
+                        WHEN COALESCE(pending, 0) = 0
+                         AND reviewed = 1
+                         AND imported_from_legacy = 0
+                         AND legacy_matched = 0
+                         AND COALESCE(account_name, '') != 'Legacy'
+                         AND lower(COALESCE(type, '')) != 'internal transfer'
+                        THEN 1 ELSE 0 END) AS reviewed,
+                    SUM(CASE
+                        WHEN COALESCE(pending, 0) = 0
+                         AND imported_from_legacy = 0
+                         AND COALESCE(account_name, '') = 'Legacy'
+                        THEN 1 ELSE 0 END) AS manual,
+                    SUM(CASE
+                        WHEN COALESCE(pending, 0) = 0
+                         AND lower(COALESCE(type, '')) = 'internal transfer'
+                        THEN 1 ELSE 0 END) AS transfer,
+                    SUM(CASE
+                        WHEN COALESCE(pending, 0) = 0
+                         AND legacy_matched = 1
+                        THEN 1 ELSE 0 END) AS legacy_matched,
+                    SUM(CASE
+                        WHEN COALESCE(pending, 0) = 0
+                         AND imported_from_legacy = 1
+                         AND legacy_matched = 0
+                        THEN 1 ELSE 0 END) AS legacy_imported
+                FROM transactions
+                """
+            ).fetchone()
+
+            status_defs = [
+                ("pending", "Pending"),
+                ("needs_review", "Needs review"),
+                ("reviewed", "Reviewed"),
+                ("manual", "Manual"),
+                ("transfer", "Transfer"),
+                ("legacy_matched", "Legacy matched"),
+                ("legacy_imported", "Legacy imported"),
+            ]
+            statuses = [
+                {"value": value, "label": label, "count": int(status_counts[value] or 0)}
+                for value, label in status_defs
+                if int(status_counts[value] or 0) > 0
+            ]
         return jsonify({
             "min_date": date_range["min_date"],
             "max_date": date_range["max_date"],
-            "accounts": [dict(r) for r in rows]
+            "accounts": [dict(r) for r in rows],
+            "statuses": statuses
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

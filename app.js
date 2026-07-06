@@ -60,6 +60,7 @@ import {
     enableResizableColumns,
     initCustomMultiselects,
     populateCategoryMultiselectOptions,
+    populateStatusMultiselectOptions,
     getMultiselectValues
 } from './modules/utils.js';
 
@@ -1729,6 +1730,7 @@ export async function updateTransactionFilterOptions() {
                 accountSelect.appendChild(opt);
             });
         }
+        populateStatusMultiselectOptions(options.statuses || [], triggerFilterUpdate);
         transactionFilterOptionsLoaded = true;
     } catch (e) {
         console.error("Error setting transaction filter options:", e);

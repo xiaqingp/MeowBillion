@@ -259,10 +259,10 @@
                             </div>
                         </div>
 
-                        <!-- Multi-select: Reviewed Status -->
+                        <!-- Multi-select: Transaction Status -->
                         <div class="custom-multiselect" id="filter-reviewed-container">
                             <button class="multiselect-btn" id="reviewed-btn">
-                                <span>All review states</span>
+                                <span>All statuses</span>
                                 <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
                             </button>
                             <div class="multiselect-dropdown">
@@ -270,11 +270,8 @@
                                     <span class="action-link select-all">Select all</span>
                                     <span class="action-link clear-all">Clear</span>
                                 </div>
-                                <div class="multiselect-options">
-                                    <label><input type="checkbox" value="unreviewed_plaid" checked> Needs review</label>
-                                    <label><input type="checkbox" value="manually_reviewed" checked> Manually reviewed</label>
-                                    <label><input type="checkbox" value="legacy_matched" checked> Legacy matched</label>
-                                    <label><input type="checkbox" value="legacy_imported" checked> Legacy imported</label>
+                                <div class="multiselect-options" id="reviewed-options-list">
+                                    <!-- Populated dynamically -->
                                 </div>
                             </div>
                         </div>
@@ -293,7 +290,7 @@
                                         <th style="width: 140px;">Category</th>
                                         <th style="width: 110px;">Subcategory</th>
                                         <th style="width: 130px;">Note</th>
-                                        <th style="width: 100px; text-align: center;">Review</th>
+                                        <th style="width: 100px; text-align: center;">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tx-tbody">

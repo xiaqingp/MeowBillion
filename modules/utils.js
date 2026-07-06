@@ -194,6 +194,36 @@ export function populateCategoryMultiselectOptions(categories, triggerFilterUpda
     updateButtonText(document.getElementById("filter-category-container"));
 }
 
+export function populateStatusMultiselectOptions(statuses, triggerFilterUpdate) {
+    const list = document.getElementById("reviewed-options-list");
+    if (!list) return;
+
+    list.innerHTML = "";
+    (statuses || []).forEach(status => {
+        const lbl = document.createElement("label");
+        lbl.style.display = "flex";
+        lbl.style.alignItems = "center";
+        lbl.style.gap = "8px";
+        lbl.style.padding = "6px 8px";
+        lbl.style.fontSize = "12.5px";
+        lbl.style.borderRadius = "4px";
+        lbl.style.cursor = "pointer";
+
+        const countText = typeof status.count === "number" ? ` (${status.count})` : "";
+        lbl.innerHTML = `<input type="checkbox" value="${status.value}" checked> ${status.label}${countText}`;
+
+        const cb = lbl.querySelector("input");
+        cb.onchange = () => {
+            updateButtonText(document.getElementById("filter-reviewed-container"));
+            triggerFilterUpdate();
+        };
+
+        list.appendChild(lbl);
+    });
+
+    updateButtonText(document.getElementById("filter-reviewed-container"));
+}
+
 export function getMultiselectValues(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return "all";
@@ -227,11 +257,11 @@ function updateButtonText(container) {
             text = labels.length <= 2 ? labels.join(", ") : `${checkedCount} categories`;
         }
     } else if (container.id === "filter-reviewed-container") {
-        if (checkedCount === totalCount) text = "All review states";
-        else if (checkedCount === 0) text = "No review states";
+        if (checkedCount === totalCount) text = "All statuses";
+        else if (checkedCount === 0) text = "No statuses";
         else {
-            const labels = checked.map(cb => cb.parentNode.textContent.trim());
-            text = labels.length <= 2 ? labels.join(", ") : `${checkedCount} states`;
+            const labels = checked.map(cb => cb.parentNode.textContent.trim().replace(/\s+\(\d+\)$/, ""));
+            text = labels.length <= 2 ? labels.join(", ") : `${checkedCount} statuses`;
         }
     }
 

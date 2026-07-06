@@ -909,7 +909,7 @@ select:focus, input:focus, button:focus {
 
 /* ICONS */
 .icon-pulse {
-    animation: spin 1s linear infinite;
+    animation: spin 2s linear infinite;
 }
 
 @keyframes spin {
