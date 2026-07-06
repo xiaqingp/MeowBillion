@@ -20,7 +20,9 @@ import {
     fetchAuthStatusApi,
     loginApi,
     signupApi,
-    logoutApi
+    logoutApi,
+    fetchPlaidCredentialsApi,
+    savePlaidCredentialsApi
 } from './modules/api.js';
 import { 
     loadAccounts, 
@@ -370,11 +372,21 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
     const linkBtn = document.getElementById("settings-link-btn");
     const syncBtn = document.getElementById("settings-sync-btn");
     const disconnectBtn = document.getElementById("settings-disconnect-btn");
+    const clientIdInput = document.getElementById("plaid-client-id-input");
+    const secretInput = document.getElementById("plaid-secret-input");
+    const envSelect = document.getElementById("plaid-env-select");
+    const saveCredentialsBtn = document.getElementById("settings-save-plaid-credentials-btn");
 
     if (!credStatus || !envStatus || !linkBtn || !syncBtn || !disconnectBtn) return;
 
     try {
-        const status = preFetchedStatus || await fetchCredentialsStatus();
+        const [status, plaidCreds] = await Promise.all([
+            preFetchedStatus ? Promise.resolve(preFetchedStatus) : fetchCredentialsStatus(),
+            fetchPlaidCredentialsApi()
+        ]);
+        if (clientIdInput) clientIdInput.value = plaidCreds.client_id || "";
+        if (secretInput) secretInput.placeholder = plaidCreds.has_credentials ? "Plaid Secret saved" : "Plaid Secret";
+        if (envSelect) envSelect.value = plaidCreds.environment || status.env || "development";
         if (status.has_credentials) {
             credStatus.textContent = "Configured";
             credStatus.style.color = "var(--color-success)";
@@ -389,10 +401,13 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
             syncBtn.removeAttribute("disabled");
             disconnectBtn.removeAttribute("disabled");
         } else {
-            credStatus.textContent = "Missing .env credentials";
+            credStatus.textContent = "Missing user credentials";
             credStatus.style.color = "var(--color-danger)";
             envStatus.textContent = "N/A";
             if (syncTimeEl) syncTimeEl.textContent = "N/A";
+            linkBtn.setAttribute("disabled", "true");
+            syncBtn.setAttribute("disabled", "true");
+            disconnectBtn.setAttribute("disabled", "true");
         }
     } catch (err) {
         credStatus.textContent = "Server unavailable";
@@ -403,6 +418,28 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
     linkBtn.onclick = () => linkNewBank();
     syncBtn.onclick = () => syncPlaidTransactions();
     disconnectBtn.onclick = () => handleDisconnect();
+    if (saveCredentialsBtn) {
+        saveCredentialsBtn.onclick = async () => {
+            const payload = {
+                client_id: clientIdInput?.value || "",
+                secret: secretInput?.value || "",
+                environment: envSelect?.value || "development"
+            };
+            saveCredentialsBtn.disabled = true;
+            try {
+                const res = await savePlaidCredentialsApi(payload);
+                if (res.error) {
+                    alert("Unable to save Plaid credentials: " + res.error);
+                    return;
+                }
+                if (secretInput) secretInput.value = "";
+                await checkPlaidConfiguration();
+                alert("Plaid credentials saved.");
+            } finally {
+                saveCredentialsBtn.disabled = false;
+            }
+        };
+    }
 }
 
 async function renderDashboard(accounts) {

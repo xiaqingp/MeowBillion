@@ -1150,6 +1150,18 @@ select:focus, input:focus, button:focus {
     word-break: break-word;
 }
 
+.settings-credential-form {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 150px auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 16px;
+}
+
+.settings-credential-form .sync-btn {
+    justify-content: center;
+}
+
 .settings-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1438,6 +1450,10 @@ select:focus, input:focus, button:focus {
     }
 
     .settings-status-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-credential-form {
         grid-template-columns: 1fr;
     }
 

@@ -11,7 +11,7 @@ MeowBillion is a local-first personal finance workspace for Plaid-linked account
 pip install -r requirements.txt
 ```
 
-3. Copy `.env.example` to `.env` and add your Plaid credentials.
+3. Copy `.env.example` to `.env` and set app-level values such as `APP_SECRET_KEY`.
 4. Start the app:
 
 ```powershell
@@ -20,6 +20,7 @@ python server.py
 
 The app listens on `http://127.0.0.1:8090` by default, or the next available port.
 On first launch, create the admin account in the setup screen. That first account claims any existing local data; later signups start with empty personal data.
+Each user adds their own Plaid API credentials in Plaid Settings before linking banks.
 
 ## Local Data
 

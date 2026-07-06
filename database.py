@@ -39,6 +39,15 @@ def init_db():
             created_at TEXT NOT NULL
         )
         ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS user_plaid_credentials (
+            user_id TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            secret TEXT NOT NULL,
+            environment TEXT NOT NULL DEFAULT 'development',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
 
         # Create plaid_tokens table
         conn.execute('''
@@ -290,6 +299,30 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_plaid_tokens_user ON plaid_tokens(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_user_date ON account_balances_history(user_id, date DESC)")
+
+        env_client_id = os.getenv('PLAID_CLIENT_ID', '').strip()
+        env_secret = os.getenv('PLAID_SECRET', '').strip()
+        env_environment = os.getenv('PLAID_ENV', 'development').strip() or 'development'
+        if env_client_id and env_secret:
+            cursor.execute(
+                """
+                SELECT id FROM users
+                WHERE id NOT IN (SELECT user_id FROM user_plaid_credentials)
+                  AND (
+                    role = 'admin'
+                    OR id IN (SELECT DISTINCT user_id FROM plaid_tokens WHERE user_id IS NOT NULL AND user_id != '')
+                  )
+                """
+            )
+            for row in cursor.fetchall():
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO user_plaid_credentials
+                    (user_id, client_id, secret, environment, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (row['id'], env_client_id, env_secret, env_environment)
+                )
 
         conn.commit()
 

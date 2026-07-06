@@ -40,7 +40,9 @@ def credentials_status():
     try:
         from database import get_db
         from auth import current_user_id
+        from routes_plaid import load_user_plaid_credentials
         user_id = current_user_id()
+        creds = load_user_plaid_credentials(user_id)
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (f"{user_id}:last_sync_time",))
@@ -50,10 +52,11 @@ def credentials_status():
         conn.close()
     except Exception as e:
         print(f"Error querying last_sync_time: {e}")
+        creds = None
         
     return jsonify({
-        "has_credentials": bool(os.getenv("PLAID_CLIENT_ID") and os.getenv("PLAID_SECRET")),
-        "env": os.getenv("PLAID_ENV", "sandbox"),
+        "has_credentials": bool(creds),
+        "env": (creds or {}).get("environment", "development"),
         "last_sync_time": last_sync
     })
 

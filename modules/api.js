@@ -3,6 +3,20 @@ export async function fetchCredentialsStatus() {
     return await res.json();
 }
 
+export async function fetchPlaidCredentialsApi() {
+    const res = await fetch("/api/plaid_credentials");
+    return await res.json();
+}
+
+export async function savePlaidCredentialsApi(data) {
+    const res = await fetch("/api/plaid_credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
 export async function fetchAuthStatusApi() {
     const res = await fetch("/api/auth/status");
     return await res.json();

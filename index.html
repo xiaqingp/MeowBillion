@@ -434,6 +434,19 @@
                                 </div>
                             </div>
 
+                            <div class="settings-credential-form">
+                                <input id="plaid-client-id-input" class="filter-select" type="text" placeholder="Plaid Client ID">
+                                <input id="plaid-secret-input" class="filter-select" type="password" placeholder="Plaid Secret">
+                                <select id="plaid-env-select" class="filter-select">
+                                    <option value="sandbox">Sandbox</option>
+                                    <option value="development">Development</option>
+                                    <option value="production">Production</option>
+                                </select>
+                                <button class="sync-btn" id="settings-save-plaid-credentials-btn">
+                                    <i data-lucide="save"></i> Save credentials
+                                </button>
+                            </div>
+
                             <div class="settings-actions">
                                 <button class="sync-btn settings-btn-secondary" id="settings-link-btn" disabled>
                                     <i data-lucide="link"></i> Link bank

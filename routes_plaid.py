@@ -251,17 +251,31 @@ def normalize_account_asset_buckets(account_summary):
     elif total < balance:
         buckets['Cash'] = float(buckets.get('Cash') or 0.0) + (balance - total)
 
-def get_plaid_client():
-    PLAID_CLIENT_ID = os.getenv('PLAID_CLIENT_ID', '').strip()
-    PLAID_SECRET = os.getenv('PLAID_SECRET', '').strip()
-    PLAID_ENV = os.getenv('PLAID_ENV', 'sandbox').strip()
-    
-    if not PLAID_CLIENT_ID or not PLAID_SECRET:
+def load_user_plaid_credentials(user_id=None):
+    user_id = user_id or current_user_id()
+    if not user_id:
         return None
-    
-    if PLAID_ENV == 'sandbox':
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT client_id, secret, environment, updated_at
+            FROM user_plaid_credentials
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_plaid_client(user_id=None):
+    creds = load_user_plaid_credentials(user_id)
+    if not creds or not (creds.get('client_id') or '').strip() or not (creds.get('secret') or '').strip():
+        return None
+
+    plaid_env = (creds.get('environment') or 'development').strip()
+    if plaid_env == 'sandbox':
         host = plaid.Environment.Sandbox
-    elif PLAID_ENV == 'development':
+    elif plaid_env == 'development':
         host = plaid.Environment.Development
     else:
         host = plaid.Environment.Production
@@ -269,19 +283,63 @@ def get_plaid_client():
     configuration = plaid.Configuration(
         host=host,
         api_key={
-            'clientId': PLAID_CLIENT_ID,
-            'secret': PLAID_SECRET,
+            'clientId': creds['client_id'],
+            'secret': creds['secret'],
         }
     )
     api_client = plaid.ApiClient(configuration)
     return plaid_api.PlaidApi(api_client)
+
+
+@plaid_bp.route('/api/plaid_credentials', methods=['GET', 'POST'])
+def plaid_credentials_api():
+    user_id = current_user_id()
+    if request.method == 'GET':
+        creds = load_user_plaid_credentials(user_id)
+        return jsonify({
+            "has_credentials": bool(creds),
+            "client_id": creds.get('client_id') if creds else "",
+            "environment": creds.get('environment') if creds else "development",
+            "updated_at": creds.get('updated_at') if creds else None
+        })
+
+    data = request.get_json(silent=True) or {}
+    client_id = (data.get('client_id') or '').strip()
+    secret = (data.get('secret') or '').strip()
+    environment = (data.get('environment') or 'development').strip()
+    if environment not in ('sandbox', 'development', 'production'):
+        return jsonify({"error": "Environment must be sandbox, development, or production"}), 400
+    if not client_id:
+        return jsonify({"error": "Missing Plaid client ID"}), 400
+
+    existing = load_user_plaid_credentials(user_id)
+    if not secret and existing:
+        secret = existing.get('secret') or ''
+    if not secret:
+        return jsonify({"error": "Missing Plaid secret"}), 400
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_plaid_credentials (user_id, client_id, secret, environment, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                client_id = excluded.client_id,
+                secret = excluded.secret,
+                environment = excluded.environment,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, client_id, secret, environment)
+        )
+        conn.commit()
+    return jsonify({"status": "success"})
 
 @plaid_bp.route('/api/create_link_token', methods=['POST'])
 def create_link_token():
     user_id = current_user_id()
     client = get_plaid_client()
     if not client:
-        return jsonify({"error": "Please configure PLAID_CLIENT_ID and PLAID_SECRET in the .env file."}), 400
+        return jsonify({"error": "Please save your Plaid API credentials in Plaid Settings first."}), 400
     
     # Check if we are running in update mode for a specific item
     item_id = None
@@ -326,7 +384,7 @@ def exchange_public_token():
     user_id = current_user_id()
     client = get_plaid_client()
     if not client:
-        return jsonify({"error": "Plaid client not configured."}), 400
+        return jsonify({"error": "Plaid client not configured for this user."}), 400
     
     data = request.get_json()
     public_token = data.get('public_token')
@@ -564,13 +622,13 @@ def perform_sync(user_id=None):
     Core sync function that can be run by either the Flask endpoint or scheduler.
     Returns: new_tx_count
     """
-    client = get_plaid_client()
-    if not client:
-        raise Exception("Plaid client not configured.")
-        
     user_id = user_id or current_user_id()
     if not user_id:
         raise Exception("Authentication required.")
+
+    client = get_plaid_client(user_id)
+    if not client:
+        raise Exception("Plaid client not configured for this user.")
 
     conn = get_db()
     cursor = conn.cursor()
