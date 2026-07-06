@@ -661,7 +661,20 @@ function renderPlaidConnections(accounts, connections = []) {
     const plaidAccounts = accounts.filter(acc => acc.account_id !== "Legacy");
 
     if (plaidAccounts.length === 0 && connections.length === 0) {
-        card.style.display = "none";
+        card.style.display = "block";
+        container.innerHTML = `
+            <div class="settings-empty-link">
+                <i data-lucide="link"></i>
+                <div>
+                    <strong>No banks linked yet</strong>
+                    <p>Connect a bank with Plaid to start syncing this workspace.</p>
+                </div>
+                <button class="sync-btn settings-card-action is-primary" onclick="linkNewBank()">
+                    <i data-lucide="link"></i> Link bank
+                </button>
+            </div>
+        `;
+        lucide.createIcons();
         return;
     }
 
