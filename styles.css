@@ -170,14 +170,19 @@ select:focus, input:focus, button:focus {
 .avatar {
     width: 32px;
     height: 32px;
-    background-color: var(--color-primary);
-    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-primary), #a855f7);
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+    flex: 0 0 auto;
+}
+
+.avatar i {
+    width: 16px;
+    height: 16px;
     color: white;
-    font-size: 13px;
 }
 
 .user-info {
