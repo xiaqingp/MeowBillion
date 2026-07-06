@@ -145,8 +145,9 @@ export function renderTransactionsList() {
         const dirClass = isOut ? 'amount-expense' : 'amount-income';
 
         // --- Col 5: Type select ---
+        const isPending = t.Pending === 1;
         const isConfirmed = t.Reviewed === 1;
-        const disabledAttr = isConfirmed ? 'disabled' : '';
+        const disabledAttr = (isConfirmed || isPending) ? 'disabled' : '';
 
         let catOptionsHtml = "";
         state.categoriesConfig.categories.slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).forEach(cat => {
@@ -173,7 +174,9 @@ export function renderTransactionsList() {
 
         // --- Col 8: Action button with Legacy-specific styles ---
         let actionButtonHtml = "";
-        if (t.Reviewed === 0) {
+        if (isPending) {
+            actionButtonHtml = `<button class="btn-action-inline" disabled style="background-color: var(--color-warning-glow, #fffbeb); color: var(--color-warning, #d97706); border-color: var(--color-warning, #d97706); cursor: not-allowed; opacity: 0.9;"><i data-lucide="clock" style="width:12px;height:12px;"></i> Pending</button>`;
+        } else if (t.Reviewed === 0) {
             actionButtonHtml = `<button class="btn-action-inline btn-confirm-inline" onclick="toggleTransactionConfirm('${t.TransactionID}', event)"><i data-lucide="check-circle" style="width:12px;height:12px;"></i> Review</button>`;
         } else {
             if (t.Type === "Internal Transfer") {
@@ -223,7 +226,9 @@ export function renderTransactionsList() {
 
         // Status badge for detail metadata row (inline styles matching original)
         let statusBadgeHtml = "";
-        if (t.Reviewed === 0) {
+        if (isPending) {
+            statusBadgeHtml = `<span style="background-color: var(--color-warning-glow, #fffbeb); color: var(--color-warning, #d97706); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Pending</span>`;
+        } else if (t.Reviewed === 0) {
             statusBadgeHtml = `<span style="background-color: var(--color-warning-glow, #fffbeb); color: var(--color-warning, #d97706); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Needs review</span>`;
         } else if (t.ImportedFromLegacy === 1 && t.LegacyMatched === 1) {
             statusBadgeHtml = `<span style="background-color: var(--color-primary-glow, #eff6ff); color: var(--color-primary, #3b82f6); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Legacy matched</span>`;
@@ -239,7 +244,7 @@ export function renderTransactionsList() {
             : `<span style="background-color: var(--color-success-glow, #ecfdf5); color: var(--color-success, #10b981); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Posted</span>`;
 
         let transferMatchHtml = "";
-        if (t.Type === "Internal Transfer" && t.TransferCandidate && t.Reviewed === 0) {
+        if (!isPending && t.Type === "Internal Transfer" && t.TransferCandidate && t.Reviewed === 0) {
             transferMatchHtml = `
             <div style="padding: 10px 14px; background-color: #fffbeb; color: #d97706; border: 1px solid #fcd34d; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;" onclick="event.stopPropagation()">
                 <i data-lucide="info" style="width:16px; height:16px; flex-shrink:0;"></i>
@@ -282,7 +287,7 @@ export function renderTransactionsList() {
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px;" onclick="event.stopPropagation()">
                                 <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">个人支付比例 (Ratio)</label>
-                                <input type="number" step="0.01" min="0" max="1" class="filter-select" id="ratio-input-${t.TransactionID}" value="${t.Ratio}" style="width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; background-color: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);" ${t.IsB !== 'y' || isConfirmed ? 'disabled' : ''} oninput="updateSplitPreview('${t.TransactionID}', ${t.Amount}, '${t.Direction}')">
+                                <input type="number" step="0.01" min="0" max="1" class="filter-select" id="ratio-input-${t.TransactionID}" value="${t.Ratio}" style="width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; background-color: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);" ${t.IsB !== 'y' || isConfirmed || isPending ? 'disabled' : ''} oninput="updateSplitPreview('${t.TransactionID}', ${t.Amount}, '${t.Direction}')">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px;" onclick="event.stopPropagation()">
                                 <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">代垫退还金 (mown)</label>
@@ -293,7 +298,7 @@ export function renderTransactionsList() {
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <div id="preview-${t.TransactionID}" style="font-size:13px; color:var(--text-secondary);"></div>
                             <div>
-                                <button class="btn" style="height: 36px; padding: 0 16px; border-radius: 6px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; background-color: var(--bg-main); border: 1px solid var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); transition: var(--transition-smooth);" onclick="deleteTransaction('${t.TransactionID}', event)">
+                                <button class="btn" ${isPending ? 'disabled' : ''} style="height: 36px; padding: 0 16px; border-radius: 6px; font-weight: 700; cursor: ${isPending ? 'not-allowed' : 'pointer'}; display: inline-flex; align-items: center; gap: 6px; background-color: var(--bg-main); border: 1px solid var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); transition: var(--transition-smooth); opacity: ${isPending ? '0.5' : '1'};" onclick="${isPending ? 'event.stopPropagation()' : `deleteTransaction('${t.TransactionID}', event)`}">
                                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 删除此交易
                                 </button>
                             </div>

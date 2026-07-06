@@ -759,12 +759,15 @@ def update_transaction():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Fetch existing transaction to get direction and amount
-        cursor.execute("SELECT amount, direction FROM transactions WHERE transaction_id = ?", (tx_id,))
+        # Fetch existing transaction to get direction, amount, and settlement state.
+        cursor.execute("SELECT amount, direction, pending FROM transactions WHERE transaction_id = ?", (tx_id,))
         row = cursor.fetchone()
         if not row:
             conn.close()
             return jsonify({"error": "Transaction not found"}), 404
+        if int(row['pending'] or 0) == 1:
+            conn.close()
+            return jsonify({"error": "Pending transactions cannot be reviewed until they are posted."}), 409
             
         amount = abs(float(row['amount']))
         direction = row['direction']
@@ -807,6 +810,13 @@ def unconfirm_transaction():
             return jsonify({"error": "Missing transaction_id"}), 400
             
         conn = get_db()
+        row = conn.execute("SELECT pending FROM transactions WHERE transaction_id = ?", (tx_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Transaction not found"}), 404
+        if int(row['pending'] or 0) == 1:
+            conn.close()
+            return jsonify({"error": "Pending transactions cannot be changed until they are posted."}), 409
         conn.execute("UPDATE transactions SET reviewed = 0 WHERE transaction_id = ?", (tx_id,))
         conn.commit()
         conn.close()
@@ -825,6 +835,14 @@ def confirm_transfer():
             
         conn = get_db()
         cursor = conn.cursor()
+
+        pending_rows = cursor.execute(
+            "SELECT COUNT(*) FROM transactions WHERE transaction_id IN (?, ?) AND pending = 1",
+            (tx_id_1, tx_id_2)
+        ).fetchone()[0]
+        if pending_rows:
+            conn.close()
+            return jsonify({"error": "Pending transactions cannot be confirmed as transfers until they are posted."}), 409
         
         for tx_id in [tx_id_1, tx_id_2]:
             cursor.execute("SELECT amount, direction FROM transactions WHERE transaction_id = ?", (tx_id,))
