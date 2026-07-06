@@ -215,11 +215,11 @@ export function onCreateCategoryChange(isInitial = false) {
     
     if (subcats.length === 0) {
         subSelect.disabled = true;
-        subSelect.innerHTML = '<option value="">(无子分类)</option>';
+        subSelect.innerHTML = '<option value="">No subcategory</option>';
         subSelect.value = "";
     } else {
         subSelect.disabled = false;
-        let optionsHtml = '<option value="">选择子分类...</option>';
+        let optionsHtml = '<option value="">Select subcategory...</option>';
         subcats.forEach(sub => {
             optionsHtml += `<option value="${sub}">${sub}</option>`;
         });
