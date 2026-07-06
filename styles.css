@@ -1110,10 +1110,10 @@ select:focus, input:focus, button:focus {
 }
 
 .settings-health-card {
-    display: grid;
-    grid-template-columns: minmax(220px, 0.9fr) minmax(320px, 1.4fr) auto;
-    align-items: center;
-    gap: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
 }
 
 .settings-card-subtitle {
@@ -1125,7 +1125,7 @@ select:focus, input:focus, button:focus {
 
 .settings-status-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
 }
 
@@ -1156,10 +1156,9 @@ select:focus, input:focus, button:focus {
 
 .settings-credential-form {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 150px auto;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 10px;
     align-items: center;
-    margin-top: 16px;
 }
 
 .settings-credential-form .sync-btn {
@@ -1169,7 +1168,7 @@ select:focus, input:focus, button:focus {
 .settings-actions {
     display: flex;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 10px;
 }
 

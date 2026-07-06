@@ -9,6 +9,28 @@ config_bp = Blueprint('config', __name__)
 CATEGORY_CONFIG_KEY = 'categories_config'
 ANALYSIS_RULES_CONFIG_KEY = 'analysis_rules'
 
+LEGACY_DEFAULT_CATEGORIES = [
+    "Entertainment",
+    "Gas",
+    "Gift",
+    "Groceries",
+    "Home",
+    "Income",
+    "Insurance",
+    "Medical",
+    "Mortgage",
+    "Other",
+    "Rent",
+    "Rentals",
+    "Restaurant",
+    "Shopping",
+    "Subscription",
+    "Tax",
+    "Transport",
+    "Travel",
+    "Utility"
+]
+
 DEFAULT_CATEGORIES_CONFIG = {
     "categories": [
         "Other",
@@ -166,7 +188,10 @@ def load_categories_config_from_db():
         cursor.execute("SELECT value FROM app_config WHERE key = ?", (scoped_key(CATEGORY_CONFIG_KEY),))
         row = cursor.fetchone()
         if row:
-            return normalize_categories_config(json.loads(row['value']))
+            config = normalize_categories_config(json.loads(row['value']))
+            if config.get("categories") == LEGACY_DEFAULT_CATEGORIES:
+                return save_categories_config_to_db(conn, DEFAULT_CATEGORIES_CONFIG)
+            return config
 
         return save_categories_config_to_db(conn, DEFAULT_CATEGORIES_CONFIG)
     finally:

@@ -348,6 +348,7 @@ def create_link_token():
     try:
         data = request.get_json(silent=True) or {}
         item_id = data.get('item_id')
+        include_investments = bool(data.get('include_investments'))
         if item_id:
             conn = get_db()
             cursor = conn.cursor()
@@ -360,8 +361,12 @@ def create_link_token():
         print(f"Error checking update mode payload: {parse_err}")
         
     try:
+        products = [Products('transactions')]
+        if include_investments:
+            products.append(Products('investments'))
+
         req_args = {
-            "products": [Products('transactions'), Products('investments')],
+            "products": products,
             "client_name": "MeowBillion",
             "country_codes": [CountryCode('US')],
             "language": 'en',
