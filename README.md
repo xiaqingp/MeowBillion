@@ -19,6 +19,7 @@ python server.py
 ```
 
 The app listens on `http://127.0.0.1:8090` by default, or the next available port.
+On first launch, create the admin account in the setup screen. That first account claims any existing local data; later signups start with empty personal data.
 
 ## Local Data
 

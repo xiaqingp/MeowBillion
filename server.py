@@ -7,15 +7,28 @@ from database import init_db
 from routes_plaid import plaid_bp
 from routes_transactions import transactions_bp
 from routes_config import config_bp
+from auth import auth_bp
 
 load_dotenv()
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.secret_key = os.getenv("APP_SECRET_KEY", "dev-local-change-me")
 
 # Register Blueprints
+app.register_blueprint(auth_bp)
 app.register_blueprint(plaid_bp)
 app.register_blueprint(transactions_bp)
 app.register_blueprint(config_bp)
+
+
+@app.before_request
+def require_login_for_api():
+    if not request.path.startswith("/api/") or request.path.startswith("/api/auth/"):
+        return None
+    from auth import current_user_id
+    if not current_user_id():
+        return jsonify({"error": "Authentication required"}), 401
+    return None
 
 @app.route('/')
 def index():
@@ -26,9 +39,11 @@ def credentials_status():
     last_sync = "N/A"
     try:
         from database import get_db
+        from auth import current_user_id
+        user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM sync_metadata WHERE key = 'last_sync_time'")
+        cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (f"{user_id}:last_sync_time",))
         row = cursor.fetchone()
         if row:
             last_sync = row[0]
@@ -62,9 +77,17 @@ def start_scheduler():
                 
             print(f" * [{datetime.now().isoformat()}] Starting scheduled auto-sync...")
             try:
+                from database import get_db
                 from routes_plaid import perform_sync
-                new_txs = perform_sync()
-                print(f" * [{datetime.now().isoformat()}] Auto-sync complete. Synced {new_txs} transactions.")
+                with get_db() as conn:
+                    users = [r["id"] for r in conn.execute("SELECT id FROM users WHERE active = 1").fetchall()]
+                total_new = 0
+                for user_id in users:
+                    try:
+                        total_new += perform_sync(user_id=user_id)
+                    except Exception as user_err:
+                        print(f" * [{datetime.now().isoformat()}] Auto-sync failed for user {user_id}: {user_err}")
+                print(f" * [{datetime.now().isoformat()}] Auto-sync complete. Synced {total_new} transactions.")
             except Exception as e:
                 print(f" * [{datetime.now().isoformat()}] Auto-sync failed: {e}")
                 

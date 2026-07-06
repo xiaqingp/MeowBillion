@@ -3,6 +3,34 @@ export async function fetchCredentialsStatus() {
     return await res.json();
 }
 
+export async function fetchAuthStatusApi() {
+    const res = await fetch("/api/auth/status");
+    return await res.json();
+}
+
+export async function loginApi(email, password) {
+    const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+    });
+    return await res.json();
+}
+
+export async function signupApi(displayName, email, password, setup = false) {
+    const res = await fetch(setup ? "/api/auth/setup" : "/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName, email, password })
+    });
+    return await res.json();
+}
+
+export async function logoutApi() {
+    const res = await fetch("/api/auth/logout", { method: "POST" });
+    return await res.json();
+}
+
 export async function fetchTransactions(page, limit, filters) {
     const queryParams = new URLSearchParams({
         page,

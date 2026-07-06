@@ -16,7 +16,11 @@ import {
     fetchTransactionFilterOptionsApi,
     fetchMonthlyAnalysisApi,
     fetchTravelAnalysisApi,
-    fetchRentalAnalysisApi
+    fetchRentalAnalysisApi,
+    fetchAuthStatusApi,
+    loginApi,
+    signupApi,
+    logoutApi
 } from './modules/api.js';
 import { 
     loadAccounts, 
@@ -90,6 +94,13 @@ async function initApp() {
     const tStart = performance.now();
     lucide.createIcons();
 
+    const auth = await fetchAuthStatusApi();
+    if (!auth.authenticated) {
+        showAuthScreen(auth);
+        return;
+    }
+    showApp(auth.user);
+
     // 1. Setup static UI events and elements early so page is instantly responsive
     setupRouting();
     setupFilters();
@@ -160,6 +171,78 @@ async function initApp() {
     } catch (err) {
         console.error("Initialization error:", err);
     }
+}
+
+function showApp(user) {
+    const authScreen = document.getElementById("auth-screen");
+    const appContainer = document.querySelector(".app-container");
+    if (authScreen) authScreen.style.display = "none";
+    if (appContainer) appContainer.style.display = "flex";
+    const nameEl = document.getElementById("sidebar-user-name");
+    if (nameEl) nameEl.textContent = user?.display_name || user?.email || "MeowBillion";
+    const signoutBtn = document.getElementById("signout-btn");
+    if (signoutBtn) {
+        signoutBtn.onclick = async () => {
+            await logoutApi();
+            window.location.reload();
+        };
+    }
+}
+
+function showAuthScreen(auth) {
+    const authScreen = document.getElementById("auth-screen");
+    const appContainer = document.querySelector(".app-container");
+    if (authScreen) authScreen.style.display = "flex";
+    if (appContainer) appContainer.style.display = "none";
+
+    let mode = auth.setup_required ? "setup" : "login";
+    const title = document.getElementById("auth-title");
+    const copy = document.getElementById("auth-copy");
+    const nameInput = document.getElementById("auth-name");
+    const emailInput = document.getElementById("auth-email");
+    const passwordInput = document.getElementById("auth-password");
+    const errorEl = document.getElementById("auth-error");
+    const submitBtn = document.getElementById("auth-submit-btn");
+    const switchBtn = document.getElementById("auth-switch-btn");
+
+    function setMode(nextMode) {
+        mode = nextMode;
+        const isSetup = mode === "setup";
+        const isSignup = mode === "signup";
+        if (title) title.textContent = isSetup ? "Set up MeowBillion" : (isSignup ? "Create account" : "Sign in");
+        if (copy) copy.textContent = isSetup ? "Create the first admin account and claim existing data." : (isSignup ? "Start with your own empty workspace." : "Use your personal workspace.");
+        if (nameInput) nameInput.style.display = isSetup || isSignup ? "block" : "none";
+        if (submitBtn) submitBtn.textContent = isSetup ? "Create admin account" : (isSignup ? "Create account" : "Sign in");
+        if (switchBtn) {
+            switchBtn.style.display = auth.setup_required || !auth.allow_signups ? "none" : "block";
+            switchBtn.textContent = isSignup ? "Back to sign in" : "Create account";
+        }
+        if (errorEl) errorEl.style.display = "none";
+    }
+
+    setMode(mode);
+    if (switchBtn) {
+        switchBtn.onclick = () => setMode(mode === "signup" ? "login" : "signup");
+    }
+    if (submitBtn) {
+        submitBtn.onclick = async () => {
+            const email = emailInput?.value || "";
+            const password = passwordInput?.value || "";
+            const name = nameInput?.value || "";
+            const res = mode === "login"
+                ? await loginApi(email, password)
+                : await signupApi(name, email, password, mode === "setup");
+            if (res.error) {
+                if (errorEl) {
+                    errorEl.textContent = res.error;
+                    errorEl.style.display = "block";
+                }
+                return;
+            }
+            window.location.reload();
+        };
+    }
+    lucide.createIcons();
 }
 
 export async function loadCategoriesConfig() {

@@ -2,6 +2,7 @@ import json
 from flask import Blueprint, request, jsonify
 
 from database import get_db
+from auth import current_user_id
 
 config_bp = Blueprint('config', __name__)
 
@@ -52,6 +53,11 @@ DEFAULT_ANALYSIS_RULES_CONFIG = {
         "fallback_category": "Unclassified"
     }
 }
+
+
+def scoped_key(key, user_id=None):
+    user_id = user_id or current_user_id()
+    return f"{user_id}:{key}" if user_id else key
 
 
 def ensure_app_config_table(conn):
@@ -115,7 +121,7 @@ def save_categories_config_to_db(conn, data):
             value = excluded.value,
             updated_at = CURRENT_TIMESTAMP
         """,
-        (CATEGORY_CONFIG_KEY, json.dumps(normalized, ensure_ascii=False))
+        (scoped_key(CATEGORY_CONFIG_KEY), json.dumps(normalized, ensure_ascii=False))
     )
     conn.commit()
     return normalized
@@ -147,7 +153,7 @@ def save_analysis_rules_config_to_db(conn, data):
             value = excluded.value,
             updated_at = CURRENT_TIMESTAMP
         """,
-        (ANALYSIS_RULES_CONFIG_KEY, json.dumps(normalized, ensure_ascii=False))
+        (scoped_key(ANALYSIS_RULES_CONFIG_KEY), json.dumps(normalized, ensure_ascii=False))
     )
     conn.commit()
     return normalized
@@ -158,7 +164,7 @@ def load_analysis_rules_config_from_db():
     try:
         ensure_app_config_table(conn)
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM app_config WHERE key = ?", (ANALYSIS_RULES_CONFIG_KEY,))
+        cursor.execute("SELECT value FROM app_config WHERE key = ?", (scoped_key(ANALYSIS_RULES_CONFIG_KEY),))
         row = cursor.fetchone()
         if row:
             return normalize_analysis_rules_config(json.loads(row['value']))
@@ -173,7 +179,7 @@ def load_categories_config_from_db():
     try:
         ensure_app_config_table(conn)
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM app_config WHERE key = ?", (CATEGORY_CONFIG_KEY,))
+        cursor.execute("SELECT value FROM app_config WHERE key = ?", (scoped_key(CATEGORY_CONFIG_KEY),))
         row = cursor.fetchone()
         if row:
             return normalize_categories_config(json.loads(row['value']))
@@ -238,8 +244,8 @@ def check_duplicate_transaction():
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT COUNT(*) FROM transactions WHERE merchant = ? AND date LIKE ?",
-            (merchant, f"{month_prefix}%")
+            "SELECT COUNT(*) FROM transactions WHERE user_id = ? AND merchant = ? AND date LIKE ?",
+            (current_user_id(), merchant, f"{month_prefix}%")
         )
         count = cursor.fetchone()[0]
         conn.close()

@@ -16,6 +16,7 @@ from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
 from plaid.model.link_token_transactions import LinkTokenTransactions
 
 from database import get_db, detect_and_apply_transfer_type
+from auth import current_user_id
 from classifier import infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type
 from routes_transactions import fetch_paginated_transactions
 
@@ -39,7 +40,7 @@ def get_institution_name(client, institution_id):
 LAST_BALANCES_FETCH_TIME = 0.0
 
 ASSET_BUCKETS = ("Cash", "Stock", "Bond", "Real Estate")
-ALLOCATION_CACHE = {"time": 0.0, "payload": None}
+ALLOCATION_CACHE = {"time": 0.0, "payload": None, "user_id": None}
 ALLOCATION_CACHE_LOCK = threading.Lock()
 
 def empty_asset_buckets():
@@ -89,15 +90,20 @@ def merchant_names_match(left, right):
         return True
     return left_key.startswith(right_key) or right_key.startswith(left_key)
 
-def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_id, date_str, auth_date_str):
+def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_id, date_str, auth_date_str, user_id=None):
     if not merchant or not account_id or not date_str:
         return None
+    user_clause = "AND user_id = ?" if user_id else ""
+    params = [tx_id, account_id, amount, direction, date_str, auth_date_str, auth_date_str]
+    if user_id:
+        params.insert(1, user_id)
     cursor.execute(
         """
         SELECT transaction_id, date, authorized_date, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed,
                imported_from_legacy, legacy_matched
         FROM transactions
         WHERE transaction_id != ?
+          {user_clause}
           AND pending = 1
           AND account_name = ?
           AND amount = ?
@@ -109,8 +115,8 @@ def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_i
               OR ABS(julianday(COALESCE(authorized_date, date)) - julianday(COALESCE(?, date))) <= 3
           )
         ORDER BY reviewed DESC, date DESC
-        """,
-        (tx_id, account_id, amount, direction, date_str, auth_date_str, auth_date_str)
+        """.format(user_clause=user_clause),
+        tuple(params)
     )
     for row in cursor.fetchall():
         if merchant_names_match(merchant, row['merchant']):
@@ -118,6 +124,7 @@ def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_i
     return None
 
 def load_allocation_overrides():
+    user_id = current_user_id()
     try:
         with get_db() as conn:
             conn.execute(
@@ -134,7 +141,8 @@ def load_allocation_overrides():
                 """
             )
             rows = conn.execute(
-                "SELECT account_id, cash_pct, stock_pct, bond_pct, real_estate_pct, unclassified_pct FROM allocation_overrides"
+                "SELECT account_id, cash_pct, stock_pct, bond_pct, real_estate_pct, unclassified_pct FROM allocation_overrides WHERE user_id = ?",
+                (user_id,)
             ).fetchall()
             if rows:
                 return {
@@ -151,6 +159,7 @@ def load_allocation_overrides():
     return {}
 
 def save_allocation_overrides(data):
+    user_id = current_user_id()
     with get_db() as conn:
         conn.execute(
             """
@@ -165,14 +174,14 @@ def save_allocation_overrides(data):
             )
             """
         )
-        conn.execute("DELETE FROM allocation_overrides")
+        conn.execute("DELETE FROM allocation_overrides WHERE user_id = ?", (user_id,))
         for account_id, percentages in (data or {}).items():
             pct = normalize_percentages(percentages)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO allocation_overrides
-                (account_id, cash_pct, stock_pct, bond_pct, real_estate_pct, unclassified_pct, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                (account_id, cash_pct, stock_pct, bond_pct, real_estate_pct, unclassified_pct, updated_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
                 """,
                 (
                     account_id,
@@ -180,7 +189,8 @@ def save_allocation_overrides(data):
                     pct["Stock"],
                     pct["Bond"],
                     pct["Real Estate"],
-                    pct.get("Unclassified", 0.0)
+                    pct.get("Unclassified", 0.0),
+                    user_id
                 )
             )
         conn.commit()
@@ -268,6 +278,7 @@ def get_plaid_client():
 
 @plaid_bp.route('/api/create_link_token', methods=['POST'])
 def create_link_token():
+    user_id = current_user_id()
     client = get_plaid_client()
     if not client:
         return jsonify({"error": "Please configure PLAID_CLIENT_ID and PLAID_SECRET in the .env file."}), 400
@@ -281,7 +292,7 @@ def create_link_token():
         if item_id:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT access_token FROM plaid_tokens WHERE item_id = ?", (item_id,))
+            cursor.execute("SELECT access_token FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
             row = cursor.fetchone()
             if row:
                 access_token = row['access_token']
@@ -292,10 +303,10 @@ def create_link_token():
     try:
         req_args = {
             "products": [Products('transactions'), Products('investments')],
-            "client_name": "Plaid Local Tracker",
+            "client_name": "MeowBillion",
             "country_codes": [CountryCode('US')],
             "language": 'en',
-            "user": LinkTokenCreateRequestUser(client_user_id='unique-local-plaid-user'),
+            "user": LinkTokenCreateRequestUser(client_user_id=user_id),
             "transactions": LinkTokenTransactions(days_requested=90)
         }
         
@@ -312,6 +323,7 @@ def create_link_token():
 
 @plaid_bp.route('/api/exchange_public_token', methods=['POST'])
 def exchange_public_token():
+    user_id = current_user_id()
     client = get_plaid_client()
     if not client:
         return jsonify({"error": "Plaid client not configured."}), 400
@@ -344,7 +356,7 @@ def exchange_public_token():
         with get_db() as conn:
             # Check if token exists first to preserve last_cursor if it was already linked
             cursor = conn.cursor()
-            cursor.execute("SELECT last_cursor FROM plaid_tokens WHERE access_token = ?", (access_token,))
+            cursor.execute("SELECT last_cursor FROM plaid_tokens WHERE access_token = ? AND user_id = ?", (access_token, user_id))
             row = cursor.fetchone()
             last_cursor = row['last_cursor'] if row else ""
             
@@ -353,10 +365,10 @@ def exchange_public_token():
             conn.execute(
                 """
                 INSERT OR REPLACE INTO plaid_tokens 
-                (access_token, item_id, institution_name, last_cursor, status, created_at, holdings_sync_status) 
-                VALUES (?, ?, ?, ?, 'active', ?, 'pending')
+                (access_token, item_id, institution_name, last_cursor, status, created_at, holdings_sync_status, user_id) 
+                VALUES (?, ?, ?, ?, 'active', ?, 'pending', ?)
                 """,
-                (access_token, item_id, inst_name, last_cursor, created_at_str)
+                (access_token, item_id, inst_name, last_cursor, created_at_str, user_id)
             )
             conn.commit()
             
@@ -368,6 +380,7 @@ def exchange_public_token():
 def get_accounts():
     import time
     start = time.perf_counter()
+    user_id = current_user_id()
     client = get_plaid_client()
     accounts_list = []
     
@@ -376,10 +389,10 @@ def get_accounts():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT access_token FROM plaid_tokens")
+        cursor.execute("SELECT access_token FROM plaid_tokens WHERE user_id = ?", (user_id,))
         has_plaid = len(cursor.fetchall()) > 0
         
-        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name FROM accounts")
+        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name FROM accounts WHERE user_id = ?", (user_id,))
         db_accounts = [dict(r) for r in cursor.fetchall()]
         conn.close()
     except Exception as db_err:
@@ -401,7 +414,7 @@ def get_accounts():
         try:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT access_token FROM plaid_tokens")
+            cursor.execute("SELECT access_token FROM plaid_tokens WHERE user_id = ?", (user_id,))
             rows = cursor.fetchall()
             conn.close()
             
@@ -418,8 +431,8 @@ def get_accounts():
                         
                         # Update metadata and status to active
                         db_conn.execute(
-                            "UPDATE plaid_tokens SET item_id = ?, institution_name = ?, status = 'active', error_message = NULL WHERE access_token = ?",
-                            (item_id, inst_name, access_token)
+                            "UPDATE plaid_tokens SET item_id = ?, institution_name = ?, status = 'active', error_message = NULL WHERE access_token = ? AND user_id = ?",
+                            (item_id, inst_name, access_token, user_id)
                         )
                         
                         for acc in accounts:
@@ -427,8 +440,8 @@ def get_accounts():
                             db_conn.execute(
                                 """
                                 INSERT OR REPLACE INTO accounts 
-                                (account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                (account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name, user_id)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     acc.get('account_id'),
@@ -439,7 +452,8 @@ def get_accounts():
                                     balances.get('current'),
                                     balances.get('available'),
                                     item_id,
-                                    inst_name
+                                    inst_name,
+                                    user_id
                                 )
                             )
                             # Also save to account_balances_history!
@@ -447,10 +461,10 @@ def get_accounts():
                             db_conn.execute(
                                 """
                                 INSERT OR REPLACE INTO account_balances_history
-                                (account_id, date, balance_current, balance_available)
-                                VALUES (?, ?, ?, ?)
+                                (account_id, date, balance_current, balance_available, user_id)
+                                VALUES (?, ?, ?, ?, ?)
                                 """,
-                                (acc.get('account_id'), dt_date.today().isoformat(), balances.get('current'), balances.get('available'))
+                                (acc.get('account_id'), dt_date.today().isoformat(), balances.get('current'), balances.get('available'), user_id)
                             )
                             
                             accounts_list.append({
@@ -482,8 +496,8 @@ def get_accounts():
                         try:
                             with get_db() as status_conn:
                                 status_conn.execute(
-                                    "UPDATE plaid_tokens SET status = ?, error_message = ? WHERE access_token = ?",
-                                    (status, err_msg, access_token)
+                                    "UPDATE plaid_tokens SET status = ?, error_message = ? WHERE access_token = ? AND user_id = ?",
+                                    (status, err_msg, access_token, user_id)
                                 )
                                 status_conn.commit()
                         except Exception as status_err:
@@ -515,13 +529,13 @@ def get_accounts():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM transactions WHERE account_name = 'Legacy'")
+        cursor.execute("SELECT COUNT(*) FROM transactions WHERE account_name = 'Legacy' AND user_id = ?", (user_id,))
         has_legacy = cursor.fetchone()[0] > 0
         
         if has_legacy:
-            cursor.execute("SELECT SUM(amount) FROM transactions WHERE account_name = 'Legacy' AND direction = 'inflow'")
+            cursor.execute("SELECT SUM(amount) FROM transactions WHERE account_name = 'Legacy' AND direction = 'inflow' AND user_id = ?", (user_id,))
             inflow_sum = cursor.fetchone()[0] or 0.0
-            cursor.execute("SELECT SUM(amount) FROM transactions WHERE account_name = 'Legacy' AND direction = 'outflow'")
+            cursor.execute("SELECT SUM(amount) FROM transactions WHERE account_name = 'Legacy' AND direction = 'outflow' AND user_id = ?", (user_id,))
             outflow_sum = cursor.fetchone()[0] or 0.0
             legacy_balance = inflow_sum - outflow_sum
             
@@ -545,7 +559,7 @@ def get_accounts():
     print(f" * [/api/accounts] Fetch took {duration:.2f}ms")
     return jsonify(accounts_list)
 
-def perform_sync():
+def perform_sync(user_id=None):
     """
     Core sync function that can be run by either the Flask endpoint or scheduler.
     Returns: new_tx_count
@@ -554,9 +568,13 @@ def perform_sync():
     if not client:
         raise Exception("Plaid client not configured.")
         
+    user_id = user_id or current_user_id()
+    if not user_id:
+        raise Exception("Authentication required.")
+
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT access_token, last_cursor FROM plaid_tokens")
+    cursor.execute("SELECT access_token, last_cursor FROM plaid_tokens WHERE user_id = ?", (user_id,))
     rows = cursor.fetchall()
     
     if not rows:
@@ -580,8 +598,8 @@ def perform_sync():
             
             # Update status and metadata to active
             cursor.execute(
-                "UPDATE plaid_tokens SET item_id = ?, institution_name = ?, status = 'active', error_message = NULL WHERE access_token = ?",
-                (item_id, inst_name, access_token)
+                "UPDATE plaid_tokens SET item_id = ?, institution_name = ?, status = 'active', error_message = NULL WHERE access_token = ? AND user_id = ?",
+                (item_id, inst_name, access_token, user_id)
             )
             
             for acc in bal_res.to_dict().get('accounts', []):
@@ -589,8 +607,8 @@ def perform_sync():
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO accounts 
-                    (account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         acc.get('account_id'),
@@ -601,7 +619,8 @@ def perform_sync():
                         bal.get('current'),
                         bal.get('available'),
                         item_id,
-                        inst_name
+                        inst_name,
+                        user_id
                     )
                 )
                 
@@ -609,10 +628,10 @@ def perform_sync():
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO account_balances_history
-                    (account_id, date, balance_current, balance_available)
-                    VALUES (?, ?, ?, ?)
+                    (account_id, date, balance_current, balance_available, user_id)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (acc.get('account_id'), today_str, bal.get('current'), bal.get('available'))
+                    (acc.get('account_id'), today_str, bal.get('current'), bal.get('available'), user_id)
                 )
                 
             last_cursor = r['last_cursor'] or ''
@@ -638,8 +657,8 @@ def perform_sync():
                     if not removed_id:
                         continue
                     cursor.execute(
-                        "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0",
-                        (removed_id,)
+                        "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0 AND user_id = ?",
+                        (removed_id, user_id)
                     )
 
                 for tx in added + modified:
@@ -688,7 +707,7 @@ def perform_sync():
                     
                     is_income = amount < 0
                     direction = "inflow" if is_income else "outflow"
-                    learned_classification = infer_transaction_classification_from_history(cursor, merchant, direction)
+                    learned_classification = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
                     if learned_classification:
                         custom_type = learned_classification["type"]
                         custom_subtype = learned_classification["subtype"]
@@ -709,7 +728,8 @@ def perform_sync():
                             direction,
                             tx.get('account_id'),
                             date_str,
-                            auth_date_str
+                            auth_date_str,
+                            user_id
                         )
                         if pending_duplicate and int(pending_duplicate['reviewed'] or 0) == 1:
                             custom_type = pending_duplicate['type'] or custom_type
@@ -718,8 +738,8 @@ def perform_sync():
                             bpay_val = float(pending_duplicate['bpay'] or bpay_val)
                     
                     cursor.execute(
-                        "SELECT reviewed FROM transactions WHERE transaction_id = ?",
-                        (tx_id,)
+                        "SELECT reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
+                        (tx_id, user_id)
                     )
                     existing = cursor.fetchone()
                     
@@ -729,6 +749,7 @@ def perform_sync():
                             UPDATE transactions 
                             SET date = ?, authorized_date = ?, pending = ?, categories = ?, location = ?, payment_channel = ?, account_name = ?
                             WHERE transaction_id = ?
+                              AND user_id = ?
                             """,
                             (
                                 date_str,
@@ -738,7 +759,8 @@ def perform_sync():
                                 location_json,
                                 payment_channel,
                                 tx.get('account_id'),
-                                tx_id
+                                tx_id,
+                                user_id
                             )
                         )
                     else:
@@ -750,8 +772,8 @@ def perform_sync():
                         cursor.execute(
                             """
                             INSERT INTO transactions 
-                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, reviewed)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, reviewed, user_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 tx_id, 
@@ -773,13 +795,14 @@ def perform_sync():
                                 mown_val,
                                 note_val,
                                 custom_subtype,
-                                reviewed_val
+                                reviewed_val,
+                                user_id
                             )
                         )
                         if pending_duplicate:
                             cursor.execute(
-                                "DELETE FROM transactions WHERE transaction_id = ?",
-                                (pending_duplicate['transaction_id'],)
+                                "DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?",
+                                (pending_duplicate['transaction_id'], user_id)
                             )
                         if reviewed_val == 0:
                             detect_and_apply_transfer_type(
@@ -788,7 +811,8 @@ def perform_sync():
                                 date_str,
                                 abs_amount,
                                 direction,
-                                tx.get('account_id')
+                                tx.get('account_id'),
+                                user_id
                             )
                         if tx_id in added_ids:
                             new_tx_count += 1
@@ -797,8 +821,8 @@ def perform_sync():
                 cursor_val = res_dict.get('next_cursor', '')
                 
             cursor.execute(
-                "UPDATE plaid_tokens SET last_cursor = ? WHERE access_token = ?",
-                (cursor_val, access_token)
+                "UPDATE plaid_tokens SET last_cursor = ? WHERE access_token = ? AND user_id = ?",
+                (cursor_val, access_token, user_id)
             )
         except Exception as token_err:
             status = 'error'
@@ -815,15 +839,15 @@ def perform_sync():
                 pass
                 
             cursor.execute(
-                "UPDATE plaid_tokens SET status = ?, error_message = ? WHERE access_token = ?",
-                (status, err_msg, access_token)
+                "UPDATE plaid_tokens SET status = ?, error_message = ? WHERE access_token = ? AND user_id = ?",
+                (status, err_msg, access_token, user_id)
             )
             print(f"Error syncing token {access_token[:15]}...: {err_msg}")
         
     # Update last sync time
     from datetime import datetime as dt_datetime
     sync_time_str = dt_datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cursor.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES ('last_sync_time', ?)", (sync_time_str,))
+    cursor.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)", (f"{user_id}:last_sync_time", sync_time_str))
     
     conn.commit()
     conn.close()
@@ -849,14 +873,16 @@ def sync_transactions():
 @plaid_bp.route('/api/balance_history', methods=['GET'])
 def get_balance_history():
     try:
+        user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT h.date, h.account_id, h.balance_current, h.balance_available, a.name, a.institution_name, a.type
             FROM account_balances_history h
-            LEFT JOIN accounts a ON h.account_id = a.account_id
+            LEFT JOIN accounts a ON h.account_id = a.account_id AND a.user_id = h.user_id
+            WHERE h.user_id = ?
             ORDER BY h.date ASC
-        """)
+        """, (user_id,))
         rows = cursor.fetchall()
         conn.close()
         
@@ -867,6 +893,7 @@ def get_balance_history():
 
 @plaid_bp.route('/api/backfill_institutions', methods=['GET'])
 def backfill_institutions():
+    user_id = current_user_id()
     client = get_plaid_client()
     if not client:
         return jsonify({"error": "Plaid client not configured"}), 400
@@ -875,7 +902,7 @@ def backfill_institutions():
         from plaid.model.item_get_request import ItemGetRequest
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT access_token FROM plaid_tokens")
+            cursor.execute("SELECT access_token FROM plaid_tokens WHERE user_id = ?", (user_id,))
             tokens = [r[0] for r in cursor.fetchall()]
             
             updated_count = 0
@@ -888,7 +915,7 @@ def backfill_institutions():
                     if inst_id:
                         inst_name = get_institution_name(client, inst_id)
                         # Update all accounts with this item_id to have the correct institution_name
-                        cursor.execute("UPDATE accounts SET institution_name = ? WHERE item_id = ?", (inst_name, item_id))
+                        cursor.execute("UPDATE accounts SET institution_name = ? WHERE item_id = ? AND user_id = ?", (inst_name, item_id, user_id))
                         updated_count += 1
                 except Exception as inner_e:
                     print(f"Error backfilling token: {inner_e}")
@@ -900,13 +927,14 @@ def backfill_institutions():
 @plaid_bp.route('/api/disconnect_item', methods=['POST'])
 def disconnect_item():
     try:
+        user_id = current_user_id()
         data = request.get_json(silent=True) or {}
         item_id = data.get('item_id')
         if not item_id:
             return jsonify({"error": "Missing item_id"}), 400
             
         with get_db() as conn:
-            conn.execute("DELETE FROM plaid_tokens WHERE item_id = ?", (item_id,))
+            conn.execute("DELETE FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
@@ -914,19 +942,20 @@ def disconnect_item():
 
 def cleanup_cached_item(conn, item_id, new_item_id=None):
     import re
+    user_id = current_user_id()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT account_id, institution_name, name FROM accounts WHERE item_id = ?", (item_id,))
+    cursor.execute("SELECT account_id, institution_name, name FROM accounts WHERE item_id = ? AND user_id = ?", (item_id, user_id))
     old_acc_rows = cursor.fetchall()
     old_acc_ids = [r[0] for r in old_acc_rows]
     inst_name = old_acc_rows[0][1] if old_acc_rows else None
 
     new_acc_rows = []
     if new_item_id:
-        cursor.execute("SELECT account_id, name FROM accounts WHERE item_id = ?", (new_item_id,))
+        cursor.execute("SELECT account_id, name FROM accounts WHERE item_id = ? AND user_id = ?", (new_item_id, user_id))
         new_acc_rows = cursor.fetchall()
     elif inst_name:
-        cursor.execute("SELECT account_id, name FROM accounts WHERE institution_name = ? AND item_id != ?", (inst_name, item_id))
+        cursor.execute("SELECT account_id, name FROM accounts WHERE institution_name = ? AND item_id != ? AND user_id = ?", (inst_name, item_id, user_id))
         new_acc_rows = cursor.fetchall()
     new_acc_ids = [r[0] for r in new_acc_rows]
 
@@ -949,8 +978,8 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
 
     for old_id, new_id in account_mapping.items():
         conn.execute(
-            "UPDATE OR IGNORE account_balances_history SET account_id = ? WHERE account_id = ?",
-            (new_id, old_id)
+            "UPDATE OR IGNORE account_balances_history SET account_id = ? WHERE account_id = ? AND user_id = ?",
+            (new_id, old_id, user_id)
         )
 
     migrated_transactions = 0
@@ -958,8 +987,8 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
         placeholders = ",".join(["?"] * len(old_acc_ids))
         cursor.execute(
             f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched "
-            f"FROM transactions WHERE account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
-            old_acc_ids
+            f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
+            [user_id] + old_acc_ids
         )
         old_txs = [dict(r) for r in cursor.fetchall()]
 
@@ -967,8 +996,8 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
             new_placeholders = ",".join(["?"] * len(new_acc_ids))
             cursor.execute(
                 f"SELECT transaction_id, merchant FROM transactions "
-                f"WHERE account_name IN ({new_placeholders}) AND date = ? AND amount = ? AND reviewed = 0",
-                new_acc_ids + [tx['date'], tx['amount']]
+                f"WHERE user_id = ? AND account_name IN ({new_placeholders}) AND date = ? AND amount = ? AND reviewed = 0",
+                [user_id] + new_acc_ids + [tx['date'], tx['amount']]
             )
             matches = cursor.fetchall()
             if not matches:
@@ -994,20 +1023,20 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
                     """
                     UPDATE transactions
                     SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?
-                    WHERE transaction_id = ?
+                    WHERE transaction_id = ? AND user_id = ?
                     """,
                     (
                         tx['type'], tx['subtype'], tx['is_b'], tx['ratio'], tx['ipay'], tx['bpay'], tx['mown'], tx['note'],
-                        tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id
+                        tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id, user_id
                     )
                 )
                 migrated_transactions += 1
 
     for acc_id in old_acc_ids:
-        conn.execute("DELETE FROM transactions WHERE account_name = ?", (acc_id,))
-        conn.execute("DELETE FROM account_balances_history WHERE account_id = ?", (acc_id,))
+        conn.execute("DELETE FROM transactions WHERE account_name = ? AND user_id = ?", (acc_id, user_id))
+        conn.execute("DELETE FROM account_balances_history WHERE account_id = ? AND user_id = ?", (acc_id, user_id))
 
-    conn.execute("DELETE FROM accounts WHERE item_id = ?", (item_id,))
+    conn.execute("DELETE FROM accounts WHERE item_id = ? AND user_id = ?", (item_id, user_id))
 
     return {
         "old_accounts_deleted": len(old_acc_ids),
@@ -1019,6 +1048,7 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
 @plaid_bp.route('/api/delete_cached_accounts', methods=['POST'])
 def delete_cached_accounts():
     try:
+        user_id = current_user_id()
         data = request.get_json(silent=True) or {}
         item_id = data.get('item_id')
         if not item_id:
@@ -1029,7 +1059,7 @@ def delete_cached_accounts():
             cursor = conn.cursor()
             
             # 1. Find old accounts to be deleted
-            cursor.execute("SELECT account_id, institution_name, name FROM accounts WHERE item_id = ?", (item_id,))
+            cursor.execute("SELECT account_id, institution_name, name FROM accounts WHERE item_id = ? AND user_id = ?", (item_id, user_id))
             old_acc_rows = cursor.fetchall()
             old_acc_ids = [r[0] for r in old_acc_rows]
             inst_name = old_acc_rows[0][1] if old_acc_rows else None
@@ -1038,7 +1068,7 @@ def delete_cached_accounts():
             new_acc_ids = []
             new_acc_rows = []
             if inst_name:
-                cursor.execute("SELECT account_id, name FROM accounts WHERE institution_name = ? AND item_id != ?", (inst_name, item_id))
+                cursor.execute("SELECT account_id, name FROM accounts WHERE institution_name = ? AND item_id != ? AND user_id = ?", (inst_name, item_id, user_id))
                 new_acc_rows = cursor.fetchall()
                 new_acc_ids = [r[0] for r in new_acc_rows]
                 
@@ -1064,8 +1094,8 @@ def delete_cached_accounts():
             # 4. Migrate balance history
             for old_id, new_id in account_mapping.items():
                 conn.execute(
-                    "UPDATE OR IGNORE account_balances_history SET account_id = ? WHERE account_id = ?",
-                    (new_id, old_id)
+                    "UPDATE OR IGNORE account_balances_history SET account_id = ? WHERE account_id = ? AND user_id = ?",
+                    (new_id, old_id, user_id)
                 )
                 
             # 5. Auto-migrate reviewed/custom transactions using merchant similarity matching
@@ -1074,8 +1104,8 @@ def delete_cached_accounts():
                 placeholders = ",".join(["?"] * len(old_acc_ids))
                 cursor.execute(
                     f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched "
-                    f"FROM transactions WHERE account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
-                    old_acc_ids
+                    f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
+                    [user_id] + old_acc_ids
                 )
                 old_txs = [dict(r) for r in cursor.fetchall()]
                 
@@ -1083,8 +1113,8 @@ def delete_cached_accounts():
                     new_placeholders = ",".join(["?"] * len(new_acc_ids))
                     cursor.execute(
                         f"SELECT transaction_id, merchant FROM transactions "
-                        f"WHERE account_name IN ({new_placeholders}) AND date = ? AND amount = ? AND reviewed = 0",
-                        new_acc_ids + [tx['date'], tx['amount']]
+                        f"WHERE user_id = ? AND account_name IN ({new_placeholders}) AND date = ? AND amount = ? AND reviewed = 0",
+                        [user_id] + new_acc_ids + [tx['date'], tx['amount']]
                     )
                     matches = cursor.fetchall()
                     if matches:
@@ -1109,20 +1139,20 @@ def delete_cached_accounts():
                                 """
                                 UPDATE transactions
                                 SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?
-                                WHERE transaction_id = ?
+                                WHERE transaction_id = ? AND user_id = ?
                                 """,
                                 (
                                     tx['type'], tx['subtype'], tx['is_b'], tx['ratio'], tx['ipay'], tx['bpay'], tx['mown'], tx['note'], 
-                                    tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id
+                                    tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id, user_id
                                 )
                             )
             
             # 6. Perform the cleanup
             for acc_id in old_acc_ids:
-                conn.execute("DELETE FROM transactions WHERE account_name = ?", (acc_id,))
-                conn.execute("DELETE FROM account_balances_history WHERE account_id = ?", (acc_id,))
+                conn.execute("DELETE FROM transactions WHERE account_name = ? AND user_id = ?", (acc_id, user_id))
+                conn.execute("DELETE FROM account_balances_history WHERE account_id = ? AND user_id = ?", (acc_id, user_id))
                 
-            conn.execute("DELETE FROM accounts WHERE item_id = ?", (item_id,))
+            conn.execute("DELETE FROM accounts WHERE item_id = ? AND user_id = ?", (item_id, user_id))
             conn.commit()
             
         return jsonify({"status": "success"})
@@ -1132,6 +1162,7 @@ def delete_cached_accounts():
 @plaid_bp.route('/api/finalize_relink', methods=['POST'])
 def finalize_relink():
     try:
+        user_id = current_user_id()
         data = request.get_json(silent=True) or {}
         old_item_id = data.get('old_item_id')
         new_item_id = data.get('new_item_id')
@@ -1142,13 +1173,13 @@ def finalize_relink():
 
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ?", (new_item_id,))
+            cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND user_id = ?", (new_item_id, user_id))
             new_account_count = cursor.fetchone()[0]
             if new_account_count == 0:
                 return jsonify({"error": "New linked item has no synced accounts yet"}), 409
 
             stats = cleanup_cached_item(conn, old_item_id, new_item_id)
-            conn.execute("DELETE FROM plaid_tokens WHERE item_id = ?", (old_item_id,))
+            conn.execute("DELETE FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (old_item_id, user_id))
             conn.commit()
 
         return jsonify({"status": "success", **stats})
@@ -1158,13 +1189,14 @@ def finalize_relink():
 @plaid_bp.route('/api/connections', methods=['GET'])
 def get_connections():
     try:
+        user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT item_id, institution_name, status, error_message, holdings_sync_status, holdings_last_synced FROM plaid_tokens")
+        cursor.execute("SELECT item_id, institution_name, status, error_message, holdings_sync_status, holdings_last_synced FROM plaid_tokens WHERE user_id = ?", (user_id,))
         rows = [dict(r) for r in cursor.fetchall()]
         
         for r in rows:
-            cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND type = 'investment'", (r['item_id'],))
+            cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND type = 'investment' AND user_id = ?", (r['item_id'], user_id))
             has_plaid_investment_account = cursor.fetchone()[0] > 0
             has_synced_holdings = (r.get('holdings_sync_status') == 'synced')
             has_inv = has_plaid_investment_account or has_synced_holdings
@@ -1179,6 +1211,7 @@ def get_connections():
 
 @plaid_bp.route('/api/portfolio_allocation_details', methods=['GET'])
 def get_portfolio_allocation_details():
+    user_id = current_user_id()
     client = get_plaid_client()
     item_filter = (request.args.get('item_id') or '').strip()
     institution_filter = (request.args.get('institution') or '').strip().lower()
@@ -1186,9 +1219,9 @@ def get_portfolio_allocation_details():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT access_token, item_id, institution_name, status, holdings_sync_status, holdings_last_synced FROM plaid_tokens")
+        cursor.execute("SELECT access_token, item_id, institution_name, status, holdings_sync_status, holdings_last_synced FROM plaid_tokens WHERE user_id = ?", (user_id,))
         token_rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, institution_name, item_id FROM accounts")
+        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, institution_name, item_id FROM accounts WHERE user_id = ?", (user_id,))
         account_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
     except Exception as db_err:
@@ -1295,7 +1328,7 @@ def get_portfolio_allocation_details():
                     try:
                         with get_db() as status_conn:
                             status_cursor = status_conn.cursor()
-                            status_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ?", (item_id,))
+                            status_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
                             row = status_cursor.fetchone()
                             created_at = row[0] if row else None
                     except Exception:
@@ -1313,9 +1346,9 @@ def get_portfolio_allocation_details():
                             """
                             UPDATE plaid_tokens
                             SET status = 'active', error_message = NULL, holdings_sync_status = ?, holdings_last_synced = ?
-                            WHERE item_id = ?
+                            WHERE item_id = ? AND user_id = ?
                             """,
-                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), item_id)
+                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), item_id, user_id)
                         )
                         status_conn.commit()
                 except Exception as status_err:
@@ -1343,8 +1376,8 @@ def get_portfolio_allocation_details():
                             holdings_sync_status = 'error_login'
                     with get_db() as status_conn:
                         status_conn.execute(
-                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ?",
-                            (status, str(holdings_err), holdings_sync_status, item_id)
+                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ? AND user_id = ?",
+                            (status, str(holdings_err), holdings_sync_status, item_id, user_id)
                         )
                         status_conn.commit()
                 except Exception as status_err:
@@ -1385,15 +1418,17 @@ def get_portfolio_allocation_details():
     })
 
 def load_manual_asset_rows():
+    user_id = current_user_id()
     rows = []
     with get_db() as conn:
         asset_rows = conn.execute(
             """
             SELECT asset_id, name, asset_type, value, cash_pct, stock_pct, bond_pct, real_estate_pct
             FROM manual_assets
-            WHERE active = 1
+            WHERE active = 1 AND user_id = ?
             ORDER BY name ASC
-            """
+            """,
+            (user_id,)
         ).fetchall()
 
     for asset in asset_rows:
@@ -1423,14 +1458,17 @@ def load_manual_asset_rows():
 @plaid_bp.route('/api/manual_assets', methods=['GET', 'POST', 'DELETE'])
 def manual_assets_api():
     try:
+        user_id = current_user_id()
         if request.method == 'GET':
             with get_db() as conn:
                 rows = conn.execute(
                     """
                     SELECT asset_id, name, asset_type, value, cash_pct, stock_pct, bond_pct, real_estate_pct, active, updated_at
                     FROM manual_assets
+                    WHERE user_id = ?
                     ORDER BY active DESC, name ASC
-                    """
+                    """,
+                    (user_id,)
                 ).fetchall()
             return jsonify({"assets": [dict(row) for row in rows]})
 
@@ -1441,7 +1479,7 @@ def manual_assets_api():
 
         if request.method == 'DELETE':
             with get_db() as conn:
-                conn.execute("DELETE FROM manual_assets WHERE asset_id = ?", (asset_id,))
+                conn.execute("DELETE FROM manual_assets WHERE asset_id = ? AND user_id = ?", (asset_id, user_id))
                 conn.commit()
             ALLOCATION_CACHE["time"] = 0.0
             ALLOCATION_CACHE["payload"] = None
@@ -1455,8 +1493,8 @@ def manual_assets_api():
             conn.execute(
                 """
                 INSERT INTO manual_assets
-                    (asset_id, name, asset_type, value, cash_pct, stock_pct, bond_pct, real_estate_pct, active, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (asset_id, name, asset_type, value, cash_pct, stock_pct, bond_pct, real_estate_pct, active, updated_at, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
                 ON CONFLICT(asset_id) DO UPDATE SET
                     name = excluded.name,
                     asset_type = excluded.asset_type,
@@ -1477,7 +1515,8 @@ def manual_assets_api():
                     percentages["Stock"],
                     percentages["Bond"],
                     percentages["Real Estate"],
-                    1 if data.get("active", True) else 0
+                    1 if data.get("active", True) else 0,
+                    user_id
                 )
             )
             conn.commit()
@@ -1488,14 +1527,17 @@ def manual_assets_api():
         return jsonify({"error": str(e)}), 500
 
 def load_allocation_history_snapshots():
+    user_id = current_user_id()
     history = []
     with get_db() as conn:
         rows = conn.execute(
             """
             SELECT date, cash, stock, bond, real_estate, liabilities, source
             FROM allocation_history_snapshots
+            WHERE user_id = ?
             ORDER BY date ASC
-            """
+            """,
+            (user_id,)
         ).fetchall()
     for row in rows:
         group = {
@@ -1513,39 +1555,46 @@ def load_allocation_history_snapshots():
     return history
 
 def load_manual_asset_values_by_date():
+    user_id = current_user_id()
     by_date = {}
     with get_db() as conn:
         rows = conn.execute(
             """
             SELECT date, SUM(value) AS real_estate
             FROM manual_asset_values
+            WHERE user_id = ?
             GROUP BY date
             ORDER BY date ASC
-            """
+            """,
+            (user_id,)
         ).fetchall()
     for row in rows:
         by_date[row["date"]] = {"Real Estate": float(row["real_estate"] or 0.0)}
     return by_date
 
 def load_account_value_estimates():
+    user_id = current_user_id()
     with get_db() as conn:
         rows = conn.execute(
             """
             SELECT account_id, date, value, cash_pct, stock_pct, bond_pct, real_estate_pct
             FROM account_value_estimates
+            WHERE user_id = ?
             ORDER BY date ASC
-            """
+            """,
+            (user_id,)
         ).fetchall()
     return [dict(row) for row in rows]
 
 def build_allocation_accounts_payload(use_cache=True):
+    user_id = current_user_id()
     now = time.time()
-    if use_cache and ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
+    if use_cache and ALLOCATION_CACHE["user_id"] == user_id and ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
         return ALLOCATION_CACHE["payload"]
     if use_cache:
         with ALLOCATION_CACHE_LOCK:
             now = time.time()
-            if ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
+            if ALLOCATION_CACHE["user_id"] == user_id and ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
                 return ALLOCATION_CACHE["payload"]
             return build_allocation_accounts_payload(use_cache=False)
 
@@ -1559,11 +1608,12 @@ def build_allocation_accounts_payload(use_cache=True):
             """
             SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, institution_name, item_id
             FROM accounts
-            WHERE account_id != 'Legacy'
-            """
+            WHERE account_id != 'Legacy' AND user_id = ?
+            """,
+            (user_id,)
         )
         account_rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT access_token, item_id, institution_name, status FROM plaid_tokens")
+        cursor.execute("SELECT access_token, item_id, institution_name, status FROM plaid_tokens WHERE user_id = ?", (user_id,))
         token_rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
     except Exception as db_err:
@@ -1661,6 +1711,7 @@ def build_allocation_accounts_payload(use_cache=True):
     payload = {"accounts": rows, "totals": totals, "categories": list(ASSET_BUCKETS)}
     ALLOCATION_CACHE["time"] = now
     ALLOCATION_CACHE["payload"] = payload
+    ALLOCATION_CACHE["user_id"] = user_id
     return payload
 
 @plaid_bp.route('/api/allocation_accounts', methods=['GET'])
@@ -1673,6 +1724,7 @@ def get_allocation_accounts():
 @plaid_bp.route('/api/allocation_history', methods=['GET'])
 def get_allocation_history():
     try:
+        user_id = current_user_id()
         allocation_payload = build_allocation_accounts_payload()
         pct_by_account = {
             row["account_id"]: normalize_percentages(row.get("percentages") or {})
@@ -1692,9 +1744,11 @@ def get_allocation_history():
                 """
                 SELECT h.date, h.account_id, h.balance_current, a.type
                 FROM account_balances_history h
-                LEFT JOIN accounts a ON h.account_id = a.account_id
+                LEFT JOIN accounts a ON h.account_id = a.account_id AND a.user_id = h.user_id
+                WHERE h.user_id = ?
                 ORDER BY h.date ASC
-                """
+                """,
+                (user_id,)
             ).fetchall()
 
         by_date = {row["date"]: row for row in load_allocation_history_snapshots()}
@@ -1816,6 +1870,7 @@ def allocation_overrides_api():
 
 @plaid_bp.route('/api/portfolio_allocation', methods=['GET'])
 def get_portfolio_allocation():
+    user_id = current_user_id()
     client = get_plaid_client()
     
     # Initialize categories
@@ -1826,11 +1881,11 @@ def get_portfolio_allocation():
         cursor = conn.cursor()
         
         # Get all Plaid accounts in database (to count depository cash and unclassified investments)
-        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, institution_name, item_id FROM accounts")
+        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, institution_name, item_id FROM accounts WHERE user_id = ?", (user_id,))
         db_accounts = [dict(r) for r in cursor.fetchall()]
         
         # Get all active Plaid tokens
-        cursor.execute("SELECT access_token, item_id, status FROM plaid_tokens")
+        cursor.execute("SELECT access_token, item_id, status FROM plaid_tokens WHERE user_id = ?", (user_id,))
         tokens_rows = cursor.fetchall()
         conn.close()
     except Exception as db_err:
@@ -1876,7 +1931,7 @@ def get_portfolio_allocation():
                 # Check if this item has investment accounts in db
                 db_conn = get_db()
                 db_cursor = db_conn.cursor()
-                db_cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND type = 'investment'", (item_id,))
+                db_cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND type = 'investment' AND user_id = ?", (item_id, user_id))
                 has_inv = db_cursor.fetchone()[0] > 0
                 
                 if holdings:
@@ -1884,7 +1939,7 @@ def get_portfolio_allocation():
                 elif has_inv:
                     # It has investment accounts, but holdings returned empty!
                     # Check if it was created in the last 15 minutes
-                    db_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ?", (item_id,))
+                    db_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
                     created_at_row = db_cursor.fetchone()
                     created_at_str = created_at_row[0] if created_at_row else None
                     
@@ -1912,9 +1967,9 @@ def get_portfolio_allocation():
                             """
                             UPDATE plaid_tokens 
                             SET status = 'active', error_message = NULL, holdings_sync_status = ?, holdings_last_synced = ?
-                            WHERE item_id = ?
+                            WHERE item_id = ? AND user_id = ?
                             """,
-                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), item_id)
+                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), item_id, user_id)
                         )
                         conn.commit()
                 except Exception as status_err:
@@ -1937,8 +1992,8 @@ def get_portfolio_allocation():
                             
                     with get_db() as conn:
                         conn.execute(
-                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ?",
-                            (status, str(holdings_err), holdings_sync_status, item_id)
+                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ? AND user_id = ?",
+                            (status, str(holdings_err), holdings_sync_status, item_id, user_id)
                         )
                         conn.commit()
                 except Exception as status_err:

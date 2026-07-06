@@ -8,24 +8,30 @@ def normalize_merchant_key(merchant):
     return re.sub(r"\s+", " ", name).strip()
 
 
-def infer_transaction_classification_from_history(cursor, merchant, direction, min_count=3):
+def infer_transaction_classification_from_history(cursor, merchant, direction, min_count=3, user_id=None):
     merchant_key = normalize_merchant_key(merchant)
     direction = (direction or "").strip().lower()
     if not merchant_key or not direction:
         return None
 
+    user_clause = "AND user_id = ?" if user_id else ""
+    params = []
+    if user_id:
+        params.append(user_id)
+    params.append(direction)
     cursor.execute(
         """
         SELECT merchant, type, subtype
         FROM transactions
         WHERE reviewed = 1
+          {user_clause}
           AND merchant IS NOT NULL
           AND TRIM(merchant) != ''
           AND lower(COALESCE(direction, '')) = ?
           AND type IS NOT NULL
           AND TRIM(type) != ''
-        """,
-        (direction,)
+        """.format(user_clause=user_clause),
+        tuple(params)
     )
     matches = []
     for row in cursor.fetchall():

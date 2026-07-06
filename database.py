@@ -5,6 +5,18 @@ from classifier import infer_transaction_classification_from_history, predict_cu
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finance.db')
 
+USER_SCOPED_TABLES = [
+    'plaid_tokens',
+    'accounts',
+    'transactions',
+    'account_balances_history',
+    'allocation_overrides',
+    'manual_assets',
+    'manual_asset_values',
+    'allocation_history_snapshots',
+    'account_value_estimates',
+]
+
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=30.0)
     try:
@@ -16,6 +28,18 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            role TEXT DEFAULT 'user',
+            active INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        ''')
+
         # Create plaid_tokens table
         conn.execute('''
         CREATE TABLE IF NOT EXISTS plaid_tokens (
@@ -158,8 +182,15 @@ def init_db():
         ''')
         conn.commit()
 
-        # Dynamic Schema Upgrades: Auto-migration check: add new columns if they do not exist
         cursor = conn.cursor()
+        for table in USER_SCOPED_TABLES:
+            cursor.execute(f"PRAGMA table_info({table})")
+            scoped_columns = [row[1] for row in cursor.fetchall()]
+            if 'user_id' not in scoped_columns:
+                print(f"Adding {table} column: user_id (TEXT)")
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
+
+        # Dynamic Schema Upgrades: Auto-migration check: add new columns if they do not exist
         cursor.execute("PRAGMA table_info(transactions)")
         existing_columns = [row[1] for row in cursor.fetchall()]
         
@@ -254,11 +285,15 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_direction ON transactions(direction)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date DESC, transaction_id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_plaid_tokens_user ON plaid_tokens(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_user_date ON account_balances_history(user_id, date DESC)")
 
         conn.commit()
 
-def detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name):
+def detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name, user_id=None):
     """
     Search for a counterpart transaction (same amount, opposite direction, diff account, within 3 days).
     If found, set both transactions to 'Internal Transfer' type. Excludes legacy/manual records.
@@ -266,6 +301,10 @@ def detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, accou
     if not date or amount is None or not direction or not account_name or account_name == 'Legacy':
         return False
         
+    user_clause = "AND user_id = ?" if user_id else ""
+    params = [tx_id, amount, direction, account_name, date]
+    if user_id:
+        params.append(user_id)
     cursor.execute(
         """
         SELECT transaction_id, reviewed FROM transactions
@@ -276,17 +315,24 @@ def detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, accou
           AND account_name != 'Legacy'
           AND imported_from_legacy = 0
           AND abs(julianday(date) - julianday(?)) <= 3
-        """,
-        (tx_id, amount, direction, account_name, date)
+          {user_clause}
+        """.format(user_clause=user_clause),
+        tuple(params)
     )
     counterparts = cursor.fetchall()
     if counterparts:
         # Update current transaction type
-        cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ?", (tx_id,))
+        if user_id:
+            cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
+        else:
+            cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ?", (tx_id,))
         # Update counterparts if they are not reviewed
         for cp in counterparts:
             cp_id, cp_reviewed = cp
             if cp_reviewed == 0:
-                cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ?", (cp_id,))
+                if user_id:
+                    cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ? AND user_id = ?", (cp_id, user_id))
+                else:
+                    cursor.execute("UPDATE transactions SET type = 'Internal Transfer' WHERE transaction_id = ?", (cp_id,))
         return True
     return False

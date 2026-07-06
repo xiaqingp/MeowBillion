@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 
 from database import get_db
+from auth import current_user_id
 from routes_config import load_analysis_rules_config_from_db, load_categories_config_from_db
 
 transactions_bp = Blueprint('transactions', __name__)
@@ -58,8 +59,9 @@ def parse_amount_filter(raw):
         return None
 
 def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter=''):
-    params = []
-    where_clauses = []
+    user_id = current_user_id()
+    params = [user_id]
+    where_clauses = ["t.user_id = ?"]
     
     if query:
         where_clauses.append("(t.merchant LIKE ? OR t.note LIKE ? OR t.type LIKE ? OR t.subtype LIKE ?)")
@@ -182,7 +184,7 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             a.subtype AS account_subtype,
             a.institution_name AS institution_name
         FROM transactions t
-        LEFT JOIN accounts a ON t.account_name = a.account_id
+        LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
         {where_sql}
         ORDER BY t.date DESC, t.transaction_id DESC
         LIMIT ? OFFSET ?
@@ -199,8 +201,9 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
                 """
                 SELECT t.transaction_id, t.date, t.merchant, t.amount, t.direction, a.name AS account_name
                 FROM transactions t
-                LEFT JOIN accounts a ON t.account_name = a.account_id
+                LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
                 WHERE t.transaction_id != ?
+                  AND t.user_id = ?
                   AND t.amount = ?
                   AND t.direction != ?
                   AND t.account_name != ?
@@ -208,7 +211,7 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
                 ORDER BY abs(julianday(t.date) - julianday(?)) ASC
                 LIMIT 1
                 """,
-                (r['transaction_id'], r['amount'], r['direction'], r['account_name_raw'], r['date'], r['date'])
+                (r['transaction_id'], user_id, r['amount'], r['direction'], r['account_name_raw'], r['date'], r['date'])
             )
             cp = cursor.fetchone()
             if cp:
@@ -286,9 +289,11 @@ def get_transactions():
 @transactions_bp.route('/api/transaction_filter_options', methods=['GET'])
 def transaction_filter_options():
     try:
+        user_id = current_user_id()
         with get_db() as conn:
             date_range = conn.execute(
-                "SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM transactions"
+                "SELECT MIN(date) AS min_date, MAX(date) AS max_date FROM transactions WHERE user_id = ?",
+                (user_id,)
             ).fetchone()
             rows = conn.execute(
                 """
@@ -297,10 +302,12 @@ def transaction_filter_options():
                        COALESCE(a.institution_name, CASE WHEN t.account_name = 'Legacy' THEN 'Legacy' ELSE '' END) AS institution_name,
                        COUNT(*) AS tx_count
                 FROM transactions t
-                LEFT JOIN accounts a ON t.account_name = a.account_id
+                LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+                WHERE t.user_id = ?
                 GROUP BY t.account_name, account_name, institution_name
                 ORDER BY institution_name, account_name
-                """
+                """,
+                (user_id,)
             ).fetchall()
             status_counts = conn.execute(
                 """
@@ -334,7 +341,9 @@ def transaction_filter_options():
                          AND legacy_matched = 0
                         THEN 1 ELSE 0 END) AS legacy_imported
                 FROM transactions
-                """
+                WHERE user_id = ?
+                """,
+                (user_id,)
             ).fetchone()
 
             status_defs = [
@@ -363,6 +372,7 @@ def transaction_filter_options():
 @transactions_bp.route('/api/monthly_analysis', methods=['GET'])
 def monthly_analysis():
     try:
+        user_id = current_user_id()
         analysis_rules = get_analysis_rules()
         rental_category = configured_category_key(analysis_rules, "rentals", "Rentals")
         with get_db() as conn:
@@ -378,13 +388,14 @@ def monthly_analysis():
                        SUM(CASE WHEN lower(COALESCE(type, '')) NOT IN ('income', 'mortgage', 'tax', 'internal transfer', ?)
                                 THEN -COALESCE(ipay, 0) ELSE 0 END) AS living_expense
                 FROM transactions
-                WHERE date IS NOT NULL AND date != ''
+                WHERE user_id = ?
+                  AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 7)
                 ORDER BY month ASC
                 """,
-                (rental_category, rental_category)
+                (rental_category, user_id, rental_category)
             ).fetchall()
             category_rows = conn.execute(
                 """
@@ -392,14 +403,15 @@ def monthly_analysis():
                        COALESCE(type, 'Other') AS category,
                        SUM(-COALESCE(ipay, 0)) AS amount
                 FROM transactions
-                WHERE date IS NOT NULL AND date != ''
+                WHERE user_id = ?
+                  AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('income', 'internal transfer', ?)
                 GROUP BY substr(date, 1, 7), COALESCE(type, 'Other')
                 HAVING ABS(amount) > 0.005
                 ORDER BY month ASC, amount DESC
                 """,
-                (rental_category,)
+                (user_id, rental_category)
             ).fetchall()
             yearly_rows = conn.execute(
                 """
@@ -411,13 +423,14 @@ def monthly_analysis():
                        SUM(CASE WHEN lower(COALESCE(type, '')) NOT IN ('income', 'mortgage')
                                 THEN -COALESCE(ipay, 0) ELSE 0 END) AS expense_ex_mortgage
                 FROM transactions
-                WHERE date IS NOT NULL AND date != ''
+                WHERE user_id = ?
+                  AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 4)
                 ORDER BY year ASC
                 """,
-                (rental_category,)
+                (user_id, rental_category)
             ).fetchall()
 
         months = []
@@ -537,6 +550,7 @@ def transaction_field(row, field_name, fallback=""):
 @transactions_bp.route('/api/travel_analysis', methods=['GET'])
 def travel_analysis():
     try:
+        user_id = current_user_id()
         analysis_rules = get_analysis_rules()
         travel_rules = analysis_rules.get("travel") or {}
         travel_category = configured_category_key(analysis_rules, "travel", "Travel")
@@ -557,12 +571,13 @@ def travel_analysis():
                        t.note,
                        COALESCE(t.ipay, -t.amount) AS ipay
                 FROM transactions t
-                LEFT JOIN accounts a ON t.account_name = a.account_id
-                WHERE lower(COALESCE(t.type, '')) = ?
+                LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+                WHERE t.user_id = ?
+                  AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
                 ORDER BY t.date DESC
                 """,
-                (travel_category,)
+                (user_id, travel_category)
             ).fetchall()
 
         trips = {}
@@ -665,6 +680,7 @@ def travel_analysis():
 @transactions_bp.route('/api/rental_analysis', methods=['GET'])
 def rental_analysis():
     try:
+        user_id = current_user_id()
         analysis_rules = get_analysis_rules()
         rental_rules = analysis_rules.get("rentals") or {}
         rental_category = configured_category_key(analysis_rules, "rentals", "Rentals")
@@ -691,12 +707,13 @@ def rental_analysis():
                            END
                        ) AS signed_amount
                 FROM transactions t
-                LEFT JOIN accounts a ON t.account_name = a.account_id
-                WHERE lower(COALESCE(t.type, '')) = ?
+                LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+                WHERE t.user_id = ?
+                  AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
                 ORDER BY t.date DESC
                 """,
-                (rental_category,)
+                (user_id, rental_category)
             ).fetchall()
 
         properties = {}
@@ -805,6 +822,7 @@ def rental_analysis():
 @transactions_bp.route('/api/update_transaction', methods=['POST'])
 def update_transaction():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         tx_id = data.get('transaction_id')
         custom_type = data.get('type', 'Other')
@@ -821,7 +839,7 @@ def update_transaction():
         cursor = conn.cursor()
         
         # Fetch existing transaction to get direction, amount, and settlement state.
-        cursor.execute("SELECT amount, direction, pending FROM transactions WHERE transaction_id = ?", (tx_id,))
+        cursor.execute("SELECT amount, direction, pending FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -852,9 +870,9 @@ def update_transaction():
             """
             UPDATE transactions 
             SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, reviewed = 1 
-            WHERE transaction_id = ?
+            WHERE transaction_id = ? AND user_id = ?
             """,
-            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, tx_id)
+            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, tx_id, user_id)
         )
         conn.commit()
         conn.close()
@@ -865,20 +883,21 @@ def update_transaction():
 @transactions_bp.route('/api/unconfirm_transaction', methods=['POST'])
 def unconfirm_transaction():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         tx_id = data.get('transaction_id')
         if not tx_id:
             return jsonify({"error": "Missing transaction_id"}), 400
             
         conn = get_db()
-        row = conn.execute("SELECT pending FROM transactions WHERE transaction_id = ?", (tx_id,)).fetchone()
+        row = conn.execute("SELECT pending FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id)).fetchone()
         if not row:
             conn.close()
             return jsonify({"error": "Transaction not found"}), 404
         if int(row['pending'] or 0) == 1:
             conn.close()
             return jsonify({"error": "Pending transactions cannot be changed until they are posted."}), 409
-        conn.execute("UPDATE transactions SET reviewed = 0 WHERE transaction_id = ?", (tx_id,))
+        conn.execute("UPDATE transactions SET reviewed = 0 WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
         conn.commit()
         conn.close()
         return jsonify({"status": "success"})
@@ -888,6 +907,7 @@ def unconfirm_transaction():
 @transactions_bp.route('/api/confirm_transfer', methods=['POST'])
 def confirm_transfer():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         tx_id_1 = data.get('tx_id_1')
         tx_id_2 = data.get('tx_id_2')
@@ -898,15 +918,15 @@ def confirm_transfer():
         cursor = conn.cursor()
 
         pending_rows = cursor.execute(
-            "SELECT COUNT(*) FROM transactions WHERE transaction_id IN (?, ?) AND pending = 1",
-            (tx_id_1, tx_id_2)
+            "SELECT COUNT(*) FROM transactions WHERE user_id = ? AND transaction_id IN (?, ?) AND pending = 1",
+            (user_id, tx_id_1, tx_id_2)
         ).fetchone()[0]
         if pending_rows:
             conn.close()
             return jsonify({"error": "Pending transactions cannot be confirmed as transfers until they are posted."}), 409
         
         for tx_id in [tx_id_1, tx_id_2]:
-            cursor.execute("SELECT amount, direction FROM transactions WHERE transaction_id = ?", (tx_id,))
+            cursor.execute("SELECT amount, direction FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
             tx = cursor.fetchone()
             if not tx:
                 continue
@@ -918,9 +938,9 @@ def confirm_transfer():
                 """
                 UPDATE transactions 
                 SET type = 'Internal Transfer', is_b = 'n', ratio = 1.0, ipay = ?, bpay = 0.0, mown = 0.0, reviewed = 1 
-                WHERE transaction_id = ?
+                WHERE transaction_id = ? AND user_id = ?
                 """,
-                (ipay, tx_id)
+                (ipay, tx_id, user_id)
             )
             
         conn.commit()
@@ -932,9 +952,10 @@ def confirm_transfer():
 @transactions_bp.route('/api/categories', methods=['GET'])
 def get_categories():
     try:
+        user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT type FROM transactions WHERE type IS NOT NULL AND type != ''")
+        cursor.execute("SELECT DISTINCT type FROM transactions WHERE user_id = ? AND type IS NOT NULL AND type != ''", (user_id,))
         canonical_categories = load_canonical_categories()
         cats = [
             normalize_category_name("Income" if str(r[0]).strip().lower() == "income" else r[0], canonical_categories)
@@ -951,13 +972,14 @@ def get_categories():
 @transactions_bp.route('/api/delete_transaction', methods=['POST'])
 def delete_transaction():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         tx_id = data.get('transaction_id')
         if not tx_id:
             return jsonify({"error": "Missing transaction_id"}), 400
             
         conn = get_db()
-        conn.execute("DELETE FROM transactions WHERE transaction_id = ?", (tx_id,))
+        conn.execute("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
         conn.commit()
         conn.close()
         return jsonify({"status": "success"})
@@ -967,6 +989,7 @@ def delete_transaction():
 @transactions_bp.route('/api/merge_candidates', methods=['GET'])
 def get_merge_candidates():
     try:
+        user_id = current_user_id()
         legacy_id = request.args.get('legacy_id')
         if not legacy_id:
             return jsonify({"error": "Missing legacy_id"}), 400
@@ -976,7 +999,7 @@ def get_merge_candidates():
         cursor = conn.cursor()
         
         # 1. Get the legacy transaction details
-        cursor.execute("SELECT date, amount, direction FROM transactions WHERE transaction_id = ?", (legacy_id,))
+        cursor.execute("SELECT date, amount, direction FROM transactions WHERE transaction_id = ? AND user_id = ?", (legacy_id, user_id))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -991,10 +1014,11 @@ def get_merge_candidates():
             """
             SELECT t.*, a.name AS account_name_label 
             FROM transactions t
-            LEFT JOIN accounts a ON t.account_name = a.account_id
-            WHERE t.account_name != 'Legacy' AND t.direction = ?
+            LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+            WHERE t.user_id = ?
+              AND t.account_name != 'Legacy' AND t.direction = ?
             """,
-            (legacy_direction,)
+            (user_id, legacy_direction)
         )
         all_plaid = [dict(r) for r in cursor.fetchall()]
         conn.close()
@@ -1035,6 +1059,7 @@ def get_merge_candidates():
 @transactions_bp.route('/api/merge_transactions', methods=['POST'])
 def merge_transactions():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         legacy_id = data.get('legacy_id')
         plaid_id = data.get('plaid_id')
@@ -1045,7 +1070,7 @@ def merge_transactions():
         cursor = conn.cursor()
         
         # 1. Fetch manual classifications from legacy
-        cursor.execute("SELECT type, is_b, ratio, ipay, bpay, mown, note, subtype FROM transactions WHERE transaction_id = ?", (legacy_id,))
+        cursor.execute("SELECT type, is_b, ratio, ipay, bpay, mown, note, subtype FROM transactions WHERE transaction_id = ? AND user_id = ?", (legacy_id, user_id))
         l_row = cursor.fetchone()
         if not l_row:
             conn.close()
@@ -1059,13 +1084,13 @@ def merge_transactions():
             UPDATE transactions 
             SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, 
                 reviewed = 1, imported_from_legacy = 1, legacy_matched = 1
-            WHERE transaction_id = ?
+            WHERE transaction_id = ? AND user_id = ?
             """,
-            (l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype, plaid_id)
+            (l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype, plaid_id, user_id)
         )
         
         # 3. Delete legacy duplicate
-        conn.execute("DELETE FROM transactions WHERE transaction_id = ?", (legacy_id,))
+        conn.execute("DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?", (legacy_id, user_id))
         
         conn.commit()
         conn.close()
@@ -1076,6 +1101,7 @@ def merge_transactions():
 @transactions_bp.route('/api/create_manual_transaction', methods=['POST'])
 def create_manual_transaction():
     try:
+        user_id = current_user_id()
         data = request.get_json() or {}
         
         tx_date = data.get('date') or datetime.now().strftime('%Y-%m-%d')
@@ -1116,8 +1142,8 @@ def create_manual_transaction():
                 transaction_id, date, type, merchant, amount, direction, account_name,
                 authorized_date, pending, categories, location, payment_channel,
                 is_b, ratio, ipay, bpay, mown, note, subtype, reviewed,
-                imported_from_legacy, legacy_matched
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '{}', 'other', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+                imported_from_legacy, legacy_matched, user_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '{}', 'other', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
             """,
             (
                 tx_id,
@@ -1135,15 +1161,18 @@ def create_manual_transaction():
                 mown,
                 note,
                 subtype,
-                reviewed
+                reviewed,
+                user_id
             )
         )
         
         conn.execute(
             """
-            INSERT OR IGNORE INTO accounts (account_id, name, official_name, type, subtype)
-            VALUES ('Legacy', 'Legacy', 'Legacy Spreadsheet Data', 'depository', 'checking')
+            INSERT OR IGNORE INTO accounts (account_id, name, official_name, type, subtype, user_id)
+            VALUES ('Legacy', 'Legacy', 'Legacy Spreadsheet Data', 'depository', 'checking', ?)
             """
+            ,
+            (user_id,)
         )
         
         conn.commit()
@@ -1155,8 +1184,9 @@ def create_manual_transaction():
 @transactions_bp.route('/api/disconnect', methods=['POST'])
 def disconnect_accounts():
     try:
+        user_id = current_user_id()
         with get_db() as conn:
-            conn.execute("DELETE FROM plaid_tokens")
+            conn.execute("DELETE FROM plaid_tokens WHERE user_id = ?", (user_id,))
             conn.commit()
         return jsonify({"status": "success"})
     except Exception as e:
