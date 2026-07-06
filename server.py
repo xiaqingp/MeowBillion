@@ -95,5 +95,9 @@ if __name__ == '__main__':
     else:
         port = int(port)
 
-    print(f" * MeowBillion listening on: http://127.0.0.1:{port}")
-    app.run(host='127.0.0.1', port=port, debug=True, use_reloader=False)
+    host = os.environ.get('HOST', '127.0.0.1')
+    display_host = '127.0.0.1' if host in ('0.0.0.0', '') else host
+    print(f" * MeowBillion listening on: http://{display_host}:{port}")
+    if host == '0.0.0.0':
+        print(f" * Tailscale/LAN access: http://<your-tailscale-ip>:{port}")
+    app.run(host=host, port=port, debug=True, use_reloader=False)
