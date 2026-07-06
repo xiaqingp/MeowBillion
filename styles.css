@@ -133,6 +133,8 @@ select:focus, input:focus, button:focus {
     display: flex;
     flex-direction: column;
     z-index: 10;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .brand {
@@ -176,6 +178,8 @@ select:focus, input:focus, button:focus {
     flex-direction: column;
     gap: 8px;
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .nav-btn {
@@ -1425,6 +1429,42 @@ select:focus, input:focus, button:focus {
 }
 
 @media (max-width: 1180px) {
+    .sidebar {
+        width: 70px;
+    }
+
+    .sidebar .brand h2,
+    .sidebar .nav-btn span,
+    .sidebar .sidebar-footer .user-profile .user-info {
+        display: none;
+    }
+
+    .sidebar .brand {
+        padding: 0;
+        justify-content: center;
+        gap: 0;
+    }
+
+    .sidebar .nav-menu {
+        padding: 16px 8px;
+    }
+
+    .sidebar .nav-btn {
+        padding: 12px 0;
+        justify-content: center;
+        gap: 0;
+    }
+
+    .sidebar .sidebar-footer {
+        padding: 12px 8px;
+        display: flex;
+        justify-content: center;
+    }
+
+    .sidebar .sidebar-toggle {
+        display: none;
+    }
+
     .settings-health-card {
         grid-template-columns: 1fr;
         align-items: stretch;

@@ -11,25 +11,8 @@ ANALYSIS_RULES_CONFIG_KEY = 'analysis_rules'
 
 DEFAULT_CATEGORIES_CONFIG = {
     "categories": [
-        "Entertainment",
-        "Gas",
-        "Gift",
-        "Groceries",
-        "Home",
-        "Income",
-        "Insurance",
-        "Medical",
-        "Mortgage",
-        "Other",
-        "Rent",
         "Rentals",
-        "Restaurant",
-        "Shopping",
-        "Subscription",
-        "Tax",
-        "Transport",
-        "Travel",
-        "Utility"
+        "Travel"
     ],
     "rules": {
         "Travel": ["Flight", "Food", "Hotel", "Other", "Transport"],
