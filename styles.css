@@ -1430,39 +1430,39 @@ select:focus, input:focus, button:focus {
 
 @media (max-width: 1180px) {
     .sidebar {
-        width: 70px;
-    }
-
-    .sidebar .brand h2,
-    .sidebar .nav-btn span,
-    .sidebar .sidebar-footer .user-profile .user-info {
-        display: none;
+        width: 200px;
     }
 
     .sidebar .brand {
-        padding: 0;
-        justify-content: center;
-        gap: 0;
+        padding: 0 14px;
+        gap: 10px;
+    }
+
+    .sidebar .brand h2 {
+        font-size: 16px;
     }
 
     .sidebar .nav-menu {
-        padding: 16px 8px;
+        padding: 16px 10px;
+        gap: 6px;
     }
 
     .sidebar .nav-btn {
-        padding: 12px 0;
-        justify-content: center;
-        gap: 0;
+        padding: 10px 12px;
+        gap: 10px;
+        border-radius: 10px;
+    }
+
+    .sidebar .nav-btn span {
+        font-size: 13px;
     }
 
     .sidebar .sidebar-footer {
-        padding: 12px 8px;
-        display: flex;
-        justify-content: center;
+        padding: 12px;
     }
 
     .sidebar .sidebar-toggle {
-        display: none;
+        right: 8px;
     }
 
     .settings-health-card {

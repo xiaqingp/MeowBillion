@@ -1950,6 +1950,12 @@ function setupSidebarCollapser() {
     const sidebar = document.querySelector(".sidebar");
     
     if (sidebarToggleBtn && sidebar) {
+        const isTabletWidth = window.matchMedia("(max-width: 1180px)").matches;
+        if (isTabletWidth) {
+            sidebar.classList.remove("collapsed");
+            localStorage.removeItem("sidebar-collapsed");
+        }
+
         sidebarToggleBtn.onclick = (e) => {
             if (e) e.stopPropagation();
             sidebar.classList.toggle("collapsed");
@@ -1964,7 +1970,7 @@ function setupSidebarCollapser() {
             localStorage.setItem("sidebar-collapsed", isCollapsed ? "1" : "0");
         };
         
-        if (localStorage.getItem("sidebar-collapsed") === "1") {
+        if (!isTabletWidth && localStorage.getItem("sidebar-collapsed") === "1") {
             sidebar.classList.add("collapsed");
             const icon = sidebarToggleBtn.querySelector("i");
             if (icon) {
