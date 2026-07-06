@@ -55,10 +55,10 @@ def classify_security_bucket(security):
     name = (security.get('name') or '').lower()
     ticker = (security.get('ticker_symbol') or '').lower()
 
+    if sec_type == 'fixed income' or 'bond' in name or 'treasury' in name or 't-bill' in name or 'fixed income' in name or re.search(r'\bcd\b', name):
+        return 'Bond'
     if sec_type in ['cash', 'money market'] or ticker in ['spaxx', 'fdrxx', 'deposit'] or 'sweep' in name or 'cash' in name or 'deposit progrm' in name or 'deposit program' in name:
         return 'Cash'
-    if sec_type == 'fixed income' or 'bond' in name or 'treasury' in name or 't-bill' in name or 'fixed income' in name:
-        return 'Bond'
     if sec_type in ['equity', 'cryptocurrency']:
         return 'Stock'
     if sec_type in ['etf', 'mutual fund']:
