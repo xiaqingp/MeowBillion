@@ -1,7 +1,7 @@
 import sqlite3
 import unittest
 
-from classifier import infer_transaction_classification_from_history, normalize_merchant_key
+from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key
 
 
 def make_conn():
@@ -60,6 +60,10 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
 
     def test_normalizes_punctuation_and_spacing(self):
         self.assertEqual(normalize_merchant_key(" Trader-Joe's  #123 "), "trader joes 123")
+
+    def test_constrains_prediction_to_user_categories(self):
+        self.assertEqual(constrain_category_to_config("Groceries", ["Other", "Rentals", "Travel"]), "Other")
+        self.assertEqual(constrain_category_to_config("travel", ["Other", "Rentals", "Travel"]), "Travel")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ from plaid.model.link_token_transactions import LinkTokenTransactions
 
 from database import get_db, detect_and_apply_transfer_type
 from auth import current_user_id
-from classifier import infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type
+from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type
+from routes_config import load_categories_config_from_db
 from routes_transactions import fetch_paginated_transactions
 
 plaid_bp = Blueprint('plaid', __name__)
@@ -642,6 +643,7 @@ def perform_sync(user_id=None):
     from datetime import date as dt_date
     today_str = dt_date.today().isoformat()
     new_tx_count = 0
+    configured_categories = load_categories_config_from_db().get('categories', [])
     
     for r in rows:
         access_token = r['access_token']
@@ -770,7 +772,10 @@ def perform_sync(user_id=None):
                         custom_type = learned_classification["type"]
                         custom_subtype = learned_classification["subtype"]
                     else:
-                        custom_type = predict_custom_type(primary, detailed, merchant, is_income)
+                        custom_type = constrain_category_to_config(
+                            predict_custom_type(primary, detailed, merchant, is_income),
+                            configured_categories
+                        )
                         custom_subtype = ''
                     
                     abs_amount = abs(amount)

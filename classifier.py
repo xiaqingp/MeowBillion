@@ -110,3 +110,17 @@ def predict_custom_type(plaid_primary, plaid_detailed, merchant, is_income):
         return 'Bank Fees'
         
     return 'Other'
+
+
+def constrain_category_to_config(category, categories):
+    configured = [str(c).strip() for c in (categories or []) if str(c).strip()]
+    if not configured:
+        return category or "Other"
+
+    by_lower = {c.lower(): c for c in configured}
+    category_key = (category or "").strip().lower()
+    if category_key in by_lower:
+        return by_lower[category_key]
+    if "other" in by_lower:
+        return by_lower["other"]
+    return configured[0]

@@ -11,6 +11,7 @@ ANALYSIS_RULES_CONFIG_KEY = 'analysis_rules'
 
 DEFAULT_CATEGORIES_CONFIG = {
     "categories": [
+        "Other",
         "Rentals",
         "Travel"
     ],
