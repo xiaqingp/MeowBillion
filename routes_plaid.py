@@ -1308,6 +1308,7 @@ def get_portfolio_allocation_details():
 
     token_by_item = {r.get('item_id'): r for r in token_rows if r.get('item_id')}
     account_by_id = {r['account_id']: r for r in account_rows}
+    investment_item_ids = {r.get('item_id') for r in account_rows if r.get('type') == 'investment'}
     institutions = {}
 
     def ensure_institution(item_id, institution_name):
@@ -1347,7 +1348,7 @@ def get_portfolio_allocation_details():
         from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
         for token in token_rows:
             item_id = token.get('item_id')
-            if token.get('status') == 'error_consent':
+            if token.get('status') == 'error_consent' or item_id not in investment_item_ids:
                 continue
             try:
                 req = InvestmentsHoldingsGetRequest(access_token=token.get('access_token'))
@@ -1688,13 +1689,14 @@ def build_allocation_accounts_payload(use_cache=True):
         raise RuntimeError(f"Database error: {db_err}") from db_err
 
     accounts_by_id = {a['account_id']: a for a in account_rows}
+    investment_item_ids = {a.get('item_id') for a in account_rows if a.get('type') == 'investment'}
     account_buckets = {a['account_id']: empty_asset_buckets() for a in account_rows}
     holdings_count_by_account = {a['account_id']: 0 for a in account_rows}
 
     if client:
         from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
         for token in token_rows:
-            if token.get('status') == 'error_consent':
+            if token.get('status') == 'error_consent' or token.get('item_id') not in investment_item_ids:
                 continue
             try:
                 res = client.investments_holdings_get(
@@ -1961,6 +1963,7 @@ def get_portfolio_allocation():
         
     holdings_account_ids = set()
     successful_holdings_item_ids = set()
+    investment_item_ids = {a.get('item_id') for a in db_accounts if a.get('type') == 'investment'}
     
     # Query holdings from Plaid investments API
     if client:
@@ -1968,7 +1971,7 @@ def get_portfolio_allocation():
         for t in tokens_rows:
             access_token = t['access_token']
             item_id = t['item_id']
-            if t['status'] == 'error_consent':
+            if t['status'] == 'error_consent' or item_id not in investment_item_ids:
                 continue
                 
             try:
