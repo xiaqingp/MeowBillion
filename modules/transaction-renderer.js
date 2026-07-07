@@ -73,9 +73,10 @@ function renderRentalPropertySelect(t, disabled, autoSave) {
 function renderAssignmentSelect(t, selectedType = t.Type) {
     const kind = assignmentKind(selectedType);
     const isPending = t.Pending === 1;
+    const isReviewed = t.Reviewed === 1;
     const autoSave = kind && kind === assignmentKind(t.Type);
-    if (kind === "travel") return renderTripSelect(t, isPending, autoSave);
-    if (kind === "rental_property") return renderRentalPropertySelect(t, isPending, autoSave);
+    if (kind === "travel") return renderTripSelect(t, isPending || isReviewed, autoSave);
+    if (kind === "rental_property") return renderRentalPropertySelect(t, isPending || isReviewed, autoSave);
     return `<span class="text-muted">-</span>`;
 }
 
@@ -480,6 +481,8 @@ export function onRowCategoryChange(txId, isInitial = false, savedSubtype = "") 
 export async function onAssignmentChange(txId) {
     const select = document.getElementById(`assignment-select-${txId}`);
     if (!select || select.dataset.autosave !== "1") return;
+    const tx = state.transactions.find(t => t.TransactionID === txId);
+    if (tx?.Reviewed === 1) return;
 
     const value = select.value || "";
     const kind = select.dataset.kind || "";
@@ -493,7 +496,6 @@ export async function onAssignmentChange(txId) {
             await loadData({ preserveScroll: true });
             return;
         }
-        const tx = state.transactions.find(t => t.TransactionID === txId);
         if (tx) {
             tx.TripID = tripId;
             tx.RentalPropertyID = rentalPropertyId;

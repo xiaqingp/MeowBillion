@@ -15,6 +15,7 @@ export const state = {
         startDate: "",
         endDate: "",
         account: "all",
+        assignment: "all",
         amount: ""
     },
     hasMore: false,

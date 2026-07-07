@@ -56,6 +56,7 @@ export async function fetchTransactions(page, limit, filters) {
         start_date: filters.startDate || "",
         end_date: filters.endDate || "",
         account: filters.account || "all",
+        assignment: filters.assignment || "all",
         amount: filters.amount || ""
     });
     const res = await fetch(`/api/transactions?${queryParams}`);

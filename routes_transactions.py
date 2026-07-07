@@ -104,7 +104,7 @@ def parse_amount_filter(raw):
     except Exception:
         return None
 
-def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter=''):
+def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all'):
     user_id = current_user_id()
     params = [user_id]
     where_clauses = ["t.user_id = ?"]
@@ -127,6 +127,16 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             placeholders = ",".join(["?"] * len(accounts))
             where_clauses.append(f"t.account_name IN ({placeholders})")
             params.extend(accounts)
+
+    if assignment and assignment != 'all':
+        kind, _, assignment_id = assignment.partition(':')
+        assignment_id = assignment_id.strip()
+        if kind == 'trip' and assignment_id:
+            where_clauses.append("t.trip_id = ?")
+            params.append(assignment_id)
+        elif kind == 'rental' and assignment_id:
+            where_clauses.append("t.rental_property_id = ?")
+            params.append(assignment_id)
 
     parsed_amount = parse_amount_filter(amount_filter)
     if parsed_amount:
@@ -342,8 +352,9 @@ def get_transactions():
         end_date = request.args.get('end_date', '').strip()
         account = request.args.get('account', 'all').strip()
         amount_filter = request.args.get('amount', '').strip()
+        assignment = request.args.get('assignment', 'all').strip()
         
-        result = fetch_paginated_transactions(page, limit, query, direction, category, reviewed_filter, start_date, end_date, account, amount_filter)
+        result = fetch_paginated_transactions(page, limit, query, direction, category, reviewed_filter, start_date, end_date, account, amount_filter, assignment)
         duration = (time.perf_counter() - start) * 1000
         print(f" * [/api/transactions] Fetch took {duration:.2f}ms")
         return jsonify(result)
@@ -409,6 +420,32 @@ def transaction_filter_options():
                 """,
                 (user_id,)
             ).fetchone()
+            trip_rows = conn.execute(
+                """
+                SELECT tr.id,
+                       TRIM(COALESCE(tr.year || ' ', '') || tr.name) AS label,
+                       COUNT(*) AS tx_count
+                FROM transactions t
+                JOIN trips tr ON t.trip_id = tr.id AND tr.user_id = t.user_id
+                WHERE t.user_id = ?
+                GROUP BY tr.id, label
+                ORDER BY COALESCE(tr.year, 0) DESC, lower(tr.name)
+                """,
+                (user_id,)
+            ).fetchall()
+            rental_rows = conn.execute(
+                """
+                SELECT rp.id,
+                       rp.name AS label,
+                       COUNT(*) AS tx_count
+                FROM transactions t
+                JOIN rental_properties rp ON t.rental_property_id = rp.id AND rp.user_id = t.user_id
+                WHERE t.user_id = ?
+                GROUP BY rp.id, rp.name
+                ORDER BY lower(rp.name)
+                """,
+                (user_id,)
+            ).fetchall()
 
             status_defs = [
                 ("pending", "Pending"),
@@ -428,6 +465,8 @@ def transaction_filter_options():
             "min_date": date_range["min_date"],
             "max_date": date_range["max_date"],
             "accounts": [dict(r) for r in rows],
+            "trips": [dict(r) for r in trip_rows],
+            "rental_properties": [dict(r) for r in rental_rows],
             "statuses": statuses
         })
     except Exception as e:
@@ -992,12 +1031,15 @@ def update_transaction_assignment():
 
         conn = get_db()
         row = conn.execute(
-            "SELECT type FROM transactions WHERE transaction_id = ? AND user_id = ?",
+            "SELECT type, reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
             (tx_id, user_id)
         ).fetchone()
         if not row:
             conn.close()
             return jsonify({"error": "Transaction not found"}), 404
+        if int(row["reviewed"] or 0) == 1:
+            conn.close()
+            return jsonify({"error": "Reviewed transactions must be de-reviewed before changing assignment."}), 409
 
         tx_type = (row["type"] or "").strip().lower()
         if tx_type == "travel":

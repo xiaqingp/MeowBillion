@@ -2293,6 +2293,7 @@ export function triggerFilterUpdate() {
     const startDateInput = document.getElementById("tx-start-date");
     const endDateInput = document.getElementById("tx-end-date");
     const accountSelect = document.getElementById("tx-account-filter");
+    const assignmentSelect = document.getElementById("tx-assignment-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
@@ -2301,6 +2302,7 @@ export function triggerFilterUpdate() {
     state.currentFilters.startDate = startDateInput ? startDateInput.value : "";
     state.currentFilters.endDate = endDateInput ? endDateInput.value : "";
     state.currentFilters.account = accountSelect ? accountSelect.value : "all";
+    state.currentFilters.assignment = assignmentSelect ? assignmentSelect.value : "all";
     state.currentFilters.amount = amountInput ? amountInput.value.trim() : "";
     
     state.currentPage = 1;
@@ -2343,6 +2345,7 @@ export async function updateTransactionFilterOptions() {
     try {
         const options = await fetchTransactionFilterOptionsApi();
         const accountSelect = document.getElementById("tx-account-filter");
+        const assignmentSelect = document.getElementById("tx-assignment-filter");
         const monthInput = document.getElementById("tx-month-filter");
         const startDateInput = document.getElementById("tx-start-date");
         const endDateInput = document.getElementById("tx-end-date");
@@ -2362,6 +2365,23 @@ export async function updateTransactionFilterOptions() {
                 accountSelect.appendChild(opt);
             });
         }
+        if (assignmentSelect) {
+            assignmentSelect.innerHTML = `<option value="all">All trips/properties</option>`;
+            const addGroup = (label, items, prefix) => {
+                if (!items?.length) return;
+                const group = document.createElement("optgroup");
+                group.label = label;
+                items.forEach(item => {
+                    const opt = document.createElement("option");
+                    opt.value = `${prefix}:${item.id}`;
+                    opt.textContent = `${item.label} (${item.tx_count})`;
+                    group.appendChild(opt);
+                });
+                assignmentSelect.appendChild(group);
+            };
+            addGroup("Trips", options.trips || [], "trip");
+            addGroup("Rental properties", options.rental_properties || [], "rental");
+        }
         populateStatusMultiselectOptions(options.statuses || [], triggerFilterUpdate);
         transactionFilterOptionsLoaded = true;
     } catch (e) {
@@ -2377,6 +2397,7 @@ function setupFilters() {
     const startDateInput = document.getElementById("tx-start-date");
     const endDateInput = document.getElementById("tx-end-date");
     const accountSelect = document.getElementById("tx-account-filter");
+    const assignmentSelect = document.getElementById("tx-assignment-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     if (monthInput) {
         monthInput.onchange = () => {
@@ -2399,6 +2420,7 @@ function setupFilters() {
         };
     }
     if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
+    if (assignmentSelect) assignmentSelect.onchange = triggerFilterUpdate;
     if (amountInput) amountInput.oninput = debouncedFilterUpdate;
     
     initCustomMultiselects(triggerFilterUpdate);

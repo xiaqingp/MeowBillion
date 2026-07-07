@@ -67,6 +67,37 @@ class TransactionAssignmentTests(unittest.TestCase):
         self.assertIsNone(row["trip_id"])
         self.assertEqual(row["rental_property_id"], "rprop_1")
 
+    def test_update_assignment_rejects_reviewed_transaction(self):
+        with database.get_db() as conn:
+            conn.execute("UPDATE transactions SET reviewed = 1 WHERE transaction_id = 'travel_tx'")
+            conn.commit()
+        res = self.client.post(
+            "/api/update_transaction_assignment",
+            json={"transaction_id": "travel_tx", "trip_id": "trip_1"},
+        )
+        self.assertEqual(res.status_code, 409)
+        with database.get_db() as conn:
+            row = conn.execute(
+                "SELECT trip_id FROM transactions WHERE transaction_id = 'travel_tx'"
+            ).fetchone()
+        self.assertIsNone(row["trip_id"])
+
+    def test_transactions_filter_by_trip_and_rental_property(self):
+        with database.get_db() as conn:
+            conn.execute("UPDATE transactions SET trip_id = 'trip_1' WHERE transaction_id = 'travel_tx'")
+            conn.execute("UPDATE transactions SET rental_property_id = 'rprop_1' WHERE transaction_id = 'rental_tx'")
+            conn.commit()
+
+        trip_data = self.client.get("/api/transactions?reviewed_filter=all&assignment=trip:trip_1").get_json()
+        self.assertEqual([tx["TransactionID"] for tx in trip_data["transactions"]], ["travel_tx"])
+
+        rental_data = self.client.get("/api/transactions?reviewed_filter=all&assignment=rental:rprop_1").get_json()
+        self.assertEqual([tx["TransactionID"] for tx in rental_data["transactions"]], ["rental_tx"])
+
+        options = self.client.get("/api/transaction_filter_options").get_json()
+        self.assertEqual(options["trips"][0]["id"], "trip_1")
+        self.assertEqual(options["rental_properties"][0]["id"], "rprop_1")
+
     def test_review_clears_irrelevant_assignment_fields(self):
         res = self.client.post(
             "/api/update_transaction",
