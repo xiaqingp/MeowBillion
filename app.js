@@ -484,11 +484,24 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
 }
 
 async function renderDashboard(accounts) {
-    const assetAccounts = accounts.filter(a => a.type === "depository" || a.type === "investment");
-    const netBalance = assetAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0);
-    
     const cashBalEl = document.getElementById("dash-cash-balance");
-    if (cashBalEl) cashBalEl.textContent = formatCurrency(netBalance);
+    if (cashBalEl) {
+        try {
+            const allocationPayload = await fetchAllocationAccountsCached();
+            const totals = allocationPayload?.totals || {};
+            const assetTotal = ["Cash", "Stock", "Bond", "Real Estate"]
+                .reduce((sum, key) => sum + Number(totals[key] || 0), 0);
+            const liabilities = accounts
+                .filter(acc => acc.type === "credit" && !acc.is_virtual)
+                .reduce((sum, acc) => sum + Number(acc.balance_current || 0), 0);
+            cashBalEl.textContent = formatCurrency(assetTotal - liabilities);
+        } catch (err) {
+            console.warn("Unable to load net worth total:", err);
+            const assetAccounts = accounts.filter(a => !a.is_virtual && (a.type === "depository" || a.type === "investment"));
+            const netBalance = assetAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0);
+            cashBalEl.textContent = formatCurrency(netBalance);
+        }
+    }
 
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -571,7 +584,7 @@ function plaidWarningMessage(connInfo) {
     const raw = String(connInfo?.error_message || "");
     if (connInfo?.status === "error_consent" || raw.includes("ADDITIONAL_CONSENT_REQUIRED")) {
         if (!connInfo?.has_investments) return "";
-        return "Plaid says this investment connection has not granted Investments access. Relink to grant the investments product.";
+        return "Plaid says this investment connection has not granted Investments access. Repair the connection to grant the investments product.";
     }
     if (connInfo?.status === "error_login" || raw.includes("ITEM_LOGIN_REQUIRED")) {
         return "Plaid says this bank login needs to be refreshed before sync can continue.";
@@ -587,6 +600,10 @@ function renderPlaidWarningIcon(message) {
 }
 
 export async function reconnectItem(itemId) {
+    return repairConnection(itemId);
+}
+
+export async function repairConnection(itemId) {
     try {
         const res = await fetch("/api/create_link_token", {
             method: "POST",
@@ -601,9 +618,10 @@ export async function reconnectItem(itemId) {
         
         const handler = Plaid.create({
             token: data.link_token,
-            onSuccess: async (public_token, metadata) => {
-                alert("Institution authorization was refreshed. Reloading account data...");
-                await loadData();
+            onSuccess: async () => {
+                alert("Connection repaired. Syncing latest data...");
+                await syncPlaidTransactions();
+                await loadData({ preserveScroll: true });
             },
             onExit: (err, metadata) => {
                 if (err != null) {
@@ -613,7 +631,7 @@ export async function reconnectItem(itemId) {
         });
         handler.open();
     } catch (e) {
-        alert("Unable to start update mode: " + e.message);
+        alert("Unable to start repair: " + e.message);
     }
 }
 
@@ -636,7 +654,7 @@ export async function disconnectItem(itemId, bankName) {
 }
 
 export async function deleteCachedAccounts(itemId, bankName) {
-    if (!confirm(`Clear local cache for [${bankName}]?\n\nWarning: this deletes local accounts, synced transactions, and reconciliation records for this institution. Use this only after a duplicate/relink cleanup. Legacy imported transactions are not affected.`)) {
+    if (!confirm(`Clear local cache for [${bankName}]?\n\nWarning: this deletes local accounts, synced transactions, and reconciliation records for this institution. Use this only after replacing a duplicate connection. Legacy imported transactions are not affected.`)) {
         return;
     }
     
@@ -659,7 +677,7 @@ export async function deleteCachedAccounts(itemId, bankName) {
 }
 
 export async function replaceItemWithNewLink(oldItemId, bankName) {
-    if (!confirm(`Relink [${bankName}]?\n\nThis opens a new Plaid connection, syncs the new accounts, then migrates reviewed local history and clears the old cached accounts. If Plaid Link is cancelled, the old connection and data stay untouched.`)) {
+    if (!confirm(`Replace connection?\n\nThis creates a new Plaid connection. Account IDs and transaction IDs may change, and duplicate accounts may appear if cleanup fails.\n\nUse this only if Repair connection does not work.\n\nInstitution: ${bankName}`)) {
         return;
     }
 
@@ -667,7 +685,7 @@ export async function replaceItemWithNewLink(oldItemId, bankName) {
         const tokenRes = await fetch("/api/create_link_token", { method: "POST" });
         const tokenData = await tokenRes.json();
         if (tokenData.error) {
-            alert("Unable to create a relink token: " + tokenData.error);
+            alert("Unable to create a replacement Link token: " + tokenData.error);
             return;
         }
 
@@ -696,7 +714,7 @@ export async function replaceItemWithNewLink(oldItemId, bankName) {
                         return;
                     }
 
-                    const finalizeRes = await fetch("/api/finalize_relink", {
+                    const finalizeRes = await fetch("/api/finalize_replacement", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -711,10 +729,10 @@ export async function replaceItemWithNewLink(oldItemId, bankName) {
                         return;
                     }
 
-                    alert(`[${bankName}] relink complete. New transactions synced: ${syncData.new_transactions_count || 0}`);
+                    alert(`[${bankName}] replacement complete. New transactions synced: ${syncData.new_transactions_count || 0}`);
                     await loadData();
                 } catch (innerErr) {
-                    alert("Relink failed: " + innerErr.message);
+                    alert("Replacement failed: " + innerErr.message);
                     await loadData();
                 }
             },
@@ -726,8 +744,155 @@ export async function replaceItemWithNewLink(oldItemId, bankName) {
         });
         handler.open();
     } catch (e) {
-        alert("Unable to start relink: " + e.message);
+        alert("Unable to start replacement: " + e.message);
     }
+}
+
+function getConnectionUiState(connInfo, accList = [], isDisconnected = false) {
+    const status = isDisconnected ? "disconnected" : (connInfo?.status || "disconnected");
+    const rawErrorCode = String(connInfo?.error_code || "");
+    const rawErrorMessage = String(connInfo?.error_message || "");
+    const holdingsStatus = connInfo?.holdings_sync_status || null;
+    const hasInvestments = Boolean(connInfo?.has_investments) || accList.some(acc => acc.type === "investment");
+    const hasLoginError = status === "error_login" || rawErrorCode === "ITEM_LOGIN_REQUIRED" || rawErrorMessage.includes("ITEM_LOGIN_REQUIRED");
+    const hasConsentError = hasInvestments && (status === "error_consent" || rawErrorCode === "ADDITIONAL_CONSENT_REQUIRED" || rawErrorMessage.includes("ADDITIONAL_CONSENT_REQUIRED"));
+    const hasGenericError = status === "error";
+    const holdingsNeedsRepair = hasInvestments && ["auth_required", "consent_required", "error_consent", "error_login", "failed"].includes(holdingsStatus);
+    const holdingsPending = hasInvestments && ["pending", "syncing"].includes(holdingsStatus);
+    const holdingsLimited = hasInvestments && ["no_holdings", "product_not_supported", "not_supported"].includes(holdingsStatus);
+
+    if (status === "disconnected") {
+        return {
+            state: "disconnected",
+            label: "Disconnected",
+            message: "This connection no longer syncs. Cached local data may remain.",
+            primaryAction: "clear_cache",
+            primaryLabel: "Clear cache",
+            moreItems: ["view_cached_data"]
+        };
+    }
+    if (hasLoginError || hasConsentError || hasGenericError || holdingsNeedsRepair) {
+        return {
+            state: "needs_repair",
+            label: "Needs attention",
+            message: "This connection needs repair before it can fully sync.",
+            primaryAction: "repair",
+            primaryLabel: "Repair connection",
+            moreItems: ["view_error_details", "disconnect", "replace_connection"]
+        };
+    }
+    if (holdingsPending) {
+        return {
+            state: "syncing_or_pending",
+            label: "Holdings syncing",
+            message: "Plaid is still preparing investment holdings.",
+            primaryAction: "sync",
+            primaryLabel: "Sync now",
+            moreItems: ["view_details", "disconnect", "replace_connection"]
+        };
+    }
+    if (holdingsLimited) {
+        return {
+            state: "limited_support",
+            label: holdingsStatus === "no_holdings" ? "No holdings" : "Limited support",
+            message: "Investment holdings are not available for this connection.",
+            primaryAction: "sync",
+            primaryLabel: "Sync now",
+            moreItems: ["view_details", "disconnect", "replace_connection"]
+        };
+    }
+    if (hasInvestments && holdingsStatus === "synced") {
+        return {
+            state: "connected",
+            label: "Investments synced",
+            message: "Transactions, accounts, and investment holdings are syncing normally.",
+            primaryAction: "sync",
+            primaryLabel: "Sync now",
+            moreItems: ["view_details", "disconnect", "replace_connection"]
+        };
+    }
+    return {
+        state: "connected",
+        label: "Connected",
+        message: "Transactions and accounts are syncing normally.",
+        primaryAction: "sync",
+        primaryLabel: "Sync now",
+        moreItems: ["view_details", "disconnect", "replace_connection"]
+    };
+}
+
+function connectionTooltip(uiState, connInfo, accList, itemId, isDisconnected) {
+    const lines = [`UI status: ${uiState.label}`];
+    if (connInfo?.status) lines.push(`Plaid status: ${connInfo.status}`);
+    if (connInfo?.error_code) lines.push(`Plaid error code: ${connInfo.error_code}`);
+    if (connInfo?.error_message) lines.push(`Plaid error message: ${String(connInfo.error_message).slice(0, 260)}`);
+    if (connInfo?.holdings_sync_status) lines.push(`Holdings status: ${connInfo.holdings_sync_status}`);
+    if (connInfo?.last_sync_attempt_at) lines.push(`Last sync attempt: ${connInfo.last_sync_attempt_at}`);
+    if (connInfo?.last_success_at) lines.push(`Last successful sync: ${connInfo.last_success_at}`);
+    if (isDisconnected) {
+        lines.push(`Cached accounts: ${connInfo?.cached_accounts_count ?? accList.length}`);
+        if (connInfo?.cached_transactions_count != null) lines.push(`Cached transactions: ${connInfo.cached_transactions_count}`);
+    }
+    if (itemId) lines.push(`${isDisconnected ? "Old item ID" : "Item ID"}: ${itemId}`);
+    return lines.join("\n");
+}
+
+function showConnectionDetails(kind, itemId) {
+    const payload = window.__connectionDetails?.[itemId];
+    if (!payload) return;
+    const { uiState, connInfo, accList, bankName, isDisconnected } = payload;
+    const investmentCount = connInfo.cached_investment_accounts_count ?? accList.filter(acc => acc.type === "investment").length;
+    const accountCount = connInfo.cached_accounts_count ?? accList.length;
+    const lines = [
+        `Institution: ${bankName}`,
+        `UI status: ${uiState.label}`,
+        `Plaid status: ${connInfo.status || (isDisconnected ? "disconnected / no active Plaid token" : "unknown")}`,
+        `${isDisconnected ? "Old item ID" : "Item ID"}: ${itemId}`,
+        `Account count: ${accountCount}`,
+        `Investment account count: ${investmentCount}`
+    ];
+    if (connInfo.holdings_sync_status) lines.push(`Holdings status: ${connInfo.holdings_sync_status}`);
+    if (connInfo.last_sync_attempt_at) lines.push(`Last sync attempt: ${connInfo.last_sync_attempt_at}`);
+    if (connInfo.last_success_at) lines.push(`Last successful sync: ${connInfo.last_success_at}`);
+    if (connInfo.last_cursor_available != null) lines.push(`Last cursor available: ${connInfo.last_cursor_available ? "yes" : "no"}`);
+    if (connInfo.error_code) lines.push(`Plaid error code: ${connInfo.error_code}`);
+    if (connInfo.error_message) lines.push(`Plaid error message: ${connInfo.error_message}`);
+    if (kind === "error") lines.push("Suggested action: Repair connection");
+    if (kind === "cache") {
+        if (connInfo.cached_transactions_count != null) lines.push(`Cached transactions: ${connInfo.cached_transactions_count}`);
+        if (connInfo.cached_reviewed_transactions_count != null) lines.push(`Reviewed transactions: ${connInfo.cached_reviewed_transactions_count}`);
+        if (connInfo.first_transaction_date) lines.push(`First transaction date: ${connInfo.first_transaction_date}`);
+        if (connInfo.last_transaction_date) lines.push(`Last transaction date: ${connInfo.last_transaction_date}`);
+        lines.push("Cached transactions remain in local history until cache is cleared.");
+    }
+    alert(lines.join("\n"));
+}
+
+function renderConnectionMoreMenu(items, itemId, bankNameArg) {
+    const labels = {
+        view_details: "View details",
+        view_error_details: "View error details",
+        view_cached_data: "View cached data",
+        disconnect: "Disconnect...",
+        replace_connection: "Replace connection..."
+    };
+    const actions = {
+        view_details: `showConnectionDetails('details', '${itemId}')`,
+        view_error_details: `showConnectionDetails('error', '${itemId}')`,
+        view_cached_data: `showConnectionDetails('cache', '${itemId}')`,
+        disconnect: `disconnectItem('${itemId}', '${bankNameArg}')`,
+        replace_connection: `replaceItemWithNewLink('${itemId}', '${bankNameArg}')`
+    };
+    return `
+        <details class="settings-more-menu">
+            <summary class="pagination-btn settings-card-action" title="More actions">
+                <i data-lucide="more-horizontal"></i>
+            </summary>
+            <div class="settings-more-list">
+                ${items.map(item => `<button type="button" onclick="${actions[item]}">${labels[item]}</button>`).join("")}
+            </div>
+        </details>
+    `;
 }
 
 function renderPlaidConnections(accounts, connections = []) {
@@ -758,6 +923,7 @@ function renderPlaidConnections(accounts, connections = []) {
 
     card.style.display = "block";
     container.innerHTML = "";
+    window.__connectionDetails = {};
 
     const groups = {};
     plaidAccounts.forEach(acc => {
@@ -780,7 +946,7 @@ function renderPlaidConnections(accounts, connections = []) {
         if (itemId === "unknown") continue;
 
         const accList = groups[itemId] || [];
-        const isDisconnected = !connMap[itemId];
+        const isDisconnected = !connMap[itemId] || Boolean(connMap[itemId]?.is_cached_only);
         const connInfo = connMap[itemId] || { status: 'disconnected', institution_name: 'Bank Link' };
 
         const connCard = document.createElement("div");
@@ -793,63 +959,32 @@ function renderPlaidConnections(accounts, connections = []) {
             ? connInfo.institution_name 
             : (accList.length > 0 ? (accList[0].institution_name || guessBankName(accList)) : "Bank Link");
         const bankNameArg = escapeJsString(bankName);
-
-        let statusBadgeHtml = '';
-        let noteHtml = '';
-        let buttonHtml = '';
-        let warningIconHtml = renderPlaidWarningIcon(plaidWarningMessage(connInfo));
-
-        if (isDisconnected) {
-            statusBadgeHtml = `<span class="settings-status-badge is-muted">Disconnected</span>`;
-            warningIconHtml = "";
-            noteHtml = `<div class="settings-connection-note"><i data-lucide="info"></i><span>Sync is stopped. Local accounts and transaction history are still kept.</span></div>`;
-            buttonHtml = `
-                <button class="pagination-btn settings-card-action is-primary" onclick="replaceItemWithNewLink('${itemId}', '${bankNameArg}')">
-                    <i data-lucide="plus"></i> Relink
-                </button>
-                <button class="pagination-btn settings-card-action is-danger" onclick="deleteCachedAccounts('${itemId}', '${bankNameArg}')">
-                    <i data-lucide="trash-2"></i> Clear cache
-                </button>
-            `;
-        } else {
-            if (connInfo.status === 'active') {
-                if (connInfo.has_investments) {
-                    const syncStatus = connInfo.holdings_sync_status || 'no_holdings';
-                    if (syncStatus === 'syncing' || syncStatus === 'pending') {
-                        statusBadgeHtml = `<span class="settings-status-badge is-pending"><i data-lucide="loader" class="spin"></i> Holdings syncing</span>`;
-                        noteHtml = `<div class="settings-connection-note is-info"><i data-lucide="info"></i><span>Plaid is still preparing investment holdings. First sync can take 10-15 minutes.</span></div>`;
-                    } else if (syncStatus === 'synced') {
-                        statusBadgeHtml = `<span class="settings-status-badge is-success"><i data-lucide="check"></i> Investments synced</span>`;
-                    } else if (syncStatus === 'no_holdings') {
-                        statusBadgeHtml = `<span class="settings-status-badge is-muted">No holdings</span>`;
-                        noteHtml = `<div class="settings-connection-note"><i data-lucide="info"></i><span>No security-level holdings were returned. Allocation falls back to account-level defaults/manual overrides.</span></div>`;
-                    } else if (syncStatus === 'failed') {
-                        statusBadgeHtml = `<span class="settings-status-badge is-danger">Holdings failed</span>`;
-                    } else {
-                        statusBadgeHtml = `<span class="settings-status-badge is-muted">${escapeHtml(syncStatus)}</span>`;
-                    }
-                } else {
-                    statusBadgeHtml = `<span class="settings-status-badge is-success">Connected</span>`;
-                }
-            } else if (connInfo.status === 'error_consent') {
-                statusBadgeHtml = connInfo.has_investments
-                    ? `<span class="settings-status-badge is-danger" title="Investments permission is missing">Investment auth needed</span>`
-                    : `<span class="settings-status-badge is-success">Connected</span>`;
-            } else if (connInfo.status === 'error_login') {
-                statusBadgeHtml = `<span class="settings-status-badge is-danger" title="Bank login is required">Login required</span>`;
-            } else {
-                statusBadgeHtml = `<span class="settings-status-badge is-danger">Error</span>`;
-            }
-
-            buttonHtml = `
-                <button class="pagination-btn settings-card-action is-primary" onclick="replaceItemWithNewLink('${itemId}', '${bankNameArg}')">
-                    <i data-lucide="refresh-cw"></i> Relink
-                </button>
-                <button class="pagination-btn settings-card-action is-danger" onclick="disconnectItem('${itemId}', '${bankNameArg}')">
-                    <i data-lucide="unlink"></i> Disconnect
-                </button>
-            `;
-        }
+        const uiState = getConnectionUiState(connInfo, accList, isDisconnected);
+        window.__connectionDetails[itemId] = { uiState, connInfo, accList, bankName, isDisconnected };
+        const badgeClass = uiState.state === "needs_repair" ? "is-danger"
+            : uiState.state === "syncing_or_pending" ? "is-pending"
+            : uiState.state === "limited_support" || uiState.state === "disconnected" ? "is-muted"
+            : "is-success";
+        const statusBadgeHtml = `<span class="settings-status-badge ${badgeClass}">${escapeHtml(uiState.label)}</span>`;
+        const infoTooltip = escapeHtml(connectionTooltip(uiState, connInfo, accList, itemId, isDisconnected)).replaceAll("\n", "&#10;");
+        const infoIconHtml = `<span class="connection-info-icon" tabindex="0" title="${infoTooltip}">i</span>`;
+        const warningIconHtml = renderPlaidWarningIcon(plaidWarningMessage(connInfo));
+        const noteHtml = `<div class="settings-connection-note ${uiState.state === "needs_repair" ? "is-danger" : "is-info"}"><i data-lucide="info"></i><span>${escapeHtml(uiState.message)}</span></div>`;
+        const primaryAction = uiState.primaryAction === "repair"
+            ? `repairConnection('${itemId}')`
+            : uiState.primaryAction === "clear_cache"
+                ? `deleteCachedAccounts('${itemId}', '${bankNameArg}')`
+                : `syncPlaidTransactions()`;
+        const primaryIcon = uiState.primaryAction === "repair" ? "wrench"
+            : uiState.primaryAction === "clear_cache" ? "trash-2"
+            : "refresh-cw";
+        const primaryClass = uiState.primaryAction === "clear_cache" ? "is-danger" : "is-primary";
+        const buttonHtml = `
+            <button class="pagination-btn settings-card-action ${primaryClass}" onclick="${primaryAction}">
+                <i data-lucide="${primaryIcon}"></i> ${escapeHtml(uiState.primaryLabel)}
+            </button>
+            ${renderConnectionMoreMenu(uiState.moreItems, itemId, bankNameArg)}
+        `;
 
         let html = `
             <div class="settings-connection-header">
@@ -857,6 +992,7 @@ function renderPlaidConnections(accounts, connections = []) {
                     <i data-lucide="landmark"></i>
                     <span>${escapeHtml(bankName)} #${connIndex}</span>
                     ${statusBadgeHtml}
+                    ${infoIconHtml}
                     ${warningIconHtml}
                 </div>
                 <span class="settings-connection-id">ID: ${escapeHtml(itemId.substring(0, 8))}...</span>
@@ -900,11 +1036,15 @@ function renderPlaidConnections(accounts, connections = []) {
 }
 
 window.reconnectItem = reconnectItem;
+window.repairConnection = repairConnection;
 window.disconnectItem = disconnectItem;
 window.deleteCachedAccounts = deleteCachedAccounts;
+window.showConnectionDetails = showConnectionDetails;
+window.syncPlaidTransactions = syncPlaidTransactions;
 
-let chartInstance = null;
-let netWorthTrendRange = "1Y";
+let netWorthChartInstance = null;
+let allocationTrendChartInstance = null;
+let netWorthTrendRange = "1M";
 let netWorthTrendHistory = [];
 let netWorthTrendHistoryPromise = null;
 let allocationAccountsCache = null;
@@ -951,12 +1091,15 @@ async function fetchAllocationAccountsCached(force = false) {
 function filterTrendHistoryByRange(historyData, rangeKey) {
     if (!historyData.length || rangeKey === "ALL") return historyData;
     const lastTimestamp = Math.max(...historyData.map(row => new Date(`${row.date}T00:00:00`).getTime()));
-    const cutoff = new Date(lastTimestamp);
-    if (rangeKey === "1M") cutoff.setMonth(cutoff.getMonth() - 1);
-    if (rangeKey === "3M") cutoff.setMonth(cutoff.getMonth() - 3);
-    if (rangeKey === "1Y") cutoff.setFullYear(cutoff.getFullYear() - 1);
-    if (rangeKey === "5Y") cutoff.setFullYear(cutoff.getFullYear() - 5);
-    const cutoffTime = cutoff.getTime();
+    const rangeDays = {
+        "1M": 30,
+        "3M": 90,
+        "1Y": 365,
+        "5Y": 365 * 5
+    };
+    const days = rangeDays[rangeKey];
+    if (!days) return historyData;
+    const cutoffTime = lastTimestamp - days * 24 * 60 * 60 * 1000;
     const filtered = historyData.filter(row => new Date(`${row.date}T00:00:00`).getTime() >= cutoffTime);
     const prior = [...historyData]
         .reverse()
@@ -965,22 +1108,25 @@ function filterTrendHistoryByRange(historyData, rangeKey) {
 }
 
 export async function renderBalanceTrendChart() {
-    const canvas = document.getElementById("balanceTrendChart");
-    if (!canvas) return;
+    const netWorthCanvas = document.getElementById("balanceTrendChart");
+    const allocationCanvas = document.getElementById("allocationTrendChart");
+    if (!netWorthCanvas && !allocationCanvas) return;
 
     try {
         if (!netWorthTrendHistory.length) await fetchAllocationHistoryCached();
         const historyData = filterTrendHistoryByRange(netWorthTrendHistory, netWorthTrendRange);
         const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" });
         const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-        const trendConfig = [
-            { key: "Net Worth", label: "Net Worth", color: "#10b981", fill: true, width: 3 },
+        const netWorthConfig = [
+            { key: "Net Worth", label: "Net Worth", color: "#10b981", fill: true, width: 3 }
+        ];
+        const allocationConfig = [
             { key: "Cash", label: "Cash", color: "#3b82f6" },
             { key: "Stock", label: "Stock", color: "#22c55e" },
             { key: "Bond", label: "Bond", color: "#f59e0b" },
             { key: "Real Estate", label: "Real Estate", color: "#8b5cf6" }
         ];
-        const datasets = trendConfig.map(cfg => ({
+        const makeDatasets = (trendConfig) => trendConfig.map(cfg => ({
             label: cfg.label,
             data: historyData.map(row => ({
                 x: new Date(`${row.date}T00:00:00`).getTime(),
@@ -998,14 +1144,8 @@ export async function renderBalanceTrendChart() {
             pointHitRadius: 8,
             pointBackgroundColor: cfg.color
         }));
-        
-        // Render Chart.js
-        if (chartInstance) {
-            chartInstance.destroy();
-        }
-        
-        const ctx = canvas.getContext('2d');
-        chartInstance = new Chart(ctx, {
+
+        const buildTrendChart = (canvas, datasets) => new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
                 datasets
@@ -1027,7 +1167,7 @@ export async function renderBalanceTrendChart() {
                         dataset.borderColor = isActive ? color : `${color}45`;
                         dataset.pointBackgroundColor = isActive ? color : `${color}45`;
                         dataset.borderWidth = isActive
-                            ? (index === 0 ? 4 : 3)
+                            ? (dataset.label === "Net Worth" ? 4 : 3)
                             : 1;
                     });
                     chart.update('none');
@@ -1081,23 +1221,39 @@ export async function renderBalanceTrendChart() {
                 }
             }
         });
+
+        if (netWorthCanvas) {
+            if (netWorthChartInstance) netWorthChartInstance.destroy();
+            netWorthChartInstance = buildTrendChart(netWorthCanvas, makeDatasets(netWorthConfig));
+        }
+        if (allocationCanvas) {
+            if (allocationTrendChartInstance) allocationTrendChartInstance.destroy();
+            allocationTrendChartInstance = buildTrendChart(allocationCanvas, makeDatasets(allocationConfig));
+        }
     } catch (e) {
         console.error("Error rendering balance trend chart:", e);
     }
 }
 
 function initializeNetWorthRangeControl() {
-    const control = document.getElementById("net-worth-range-control");
-    if (!control || control.dataset.bound === "true") return;
-    control.dataset.bound = "true";
-    control.addEventListener("click", async (event) => {
-        const button = event.target.closest(".chart-range-btn");
-        if (!button) return;
-        netWorthTrendRange = button.dataset.range || "ALL";
+    const controls = document.querySelectorAll(".trend-range-control");
+    controls.forEach(control => {
         control.querySelectorAll(".chart-range-btn").forEach(btn => {
-            btn.classList.toggle("active", btn === button);
+            btn.classList.toggle("active", btn.dataset.range === netWorthTrendRange);
         });
-        await renderBalanceTrendChart();
+        if (control.dataset.bound === "true") return;
+        control.dataset.bound = "true";
+        control.addEventListener("click", async (event) => {
+            const button = event.target.closest(".chart-range-btn");
+            if (!button) return;
+            netWorthTrendRange = button.dataset.range || "ALL";
+            controls.forEach(group => {
+                group.querySelectorAll(".chart-range-btn").forEach(btn => {
+                    btn.classList.toggle("active", btn.dataset.range === netWorthTrendRange);
+                });
+            });
+            await renderBalanceTrendChart();
+        });
     });
 }
 
@@ -1144,7 +1300,8 @@ function resizeChartIfReady(chart) {
 }
 
 function resizeDashboardCharts() {
-    resizeChartIfReady(chartInstance);
+    resizeChartIfReady(netWorthChartInstance);
+    resizeChartIfReady(allocationTrendChartInstance);
     resizeChartIfReady(allocationChartInstance);
 }
 
@@ -1162,7 +1319,7 @@ function initializeResponsiveChartResizing() {
     if (!("ResizeObserver" in window)) return;
 
     const observer = new ResizeObserver(scheduleResize);
-    ["balanceTrendChart", "assetAllocationChart"].forEach(id => {
+    ["balanceTrendChart", "allocationTrendChart", "assetAllocationChart"].forEach(id => {
         const canvas = document.getElementById(id);
         const parent = canvas?.parentElement;
         if (parent) observer.observe(parent);

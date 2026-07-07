@@ -345,28 +345,28 @@ def create_link_token():
     # Check if we are running in update mode for a specific item
     item_id = None
     access_token = None
+    has_investment_accounts = False
     try:
         data = request.get_json(silent=True) or {}
         item_id = data.get('item_id')
-        include_investments = bool(data.get('include_investments'))
         if item_id:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT access_token FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
+            cursor.execute("SELECT access_token, holdings_sync_status FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (item_id, user_id))
             row = cursor.fetchone()
             if row:
                 access_token = row['access_token']
+                has_investment_accounts = item_has_investment_accounts(cursor, user_id, item_id, row['holdings_sync_status'])
             conn.close()
+            if not access_token:
+                return jsonify({"error": "Connection not found for repair."}), 404
     except Exception as parse_err:
         print(f"Error checking update mode payload: {parse_err}")
+        if item_id:
+            return jsonify({"error": "Unable to prepare repair mode for this connection."}), 500
         
     try:
-        products = [Products('transactions')]
-        if include_investments:
-            products.append(Products('investments'))
-
         req_args = {
-            "products": products,
             "client_name": "MeowBillion",
             "country_codes": [CountryCode('US')],
             "language": 'en',
@@ -376,14 +376,34 @@ def create_link_token():
         
         if access_token:
             req_args["access_token"] = access_token
-            # In update mode, the products parameter is not required if just updating credentials, 
-            # but for upgrading products (adding investments), we specify the new products list.
+            if has_investment_accounts:
+                req_args["additional_consented_products"] = [Products('investments')]
+        else:
+            req_args["products"] = [Products('transactions')]
             
         req = LinkTokenCreateRequest(**req_args)
         response = client.link_token_create(req)
         return jsonify({"link_token": response['link_token']})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def item_has_investment_accounts(cursor, user_id, item_id, holdings_sync_status=None):
+    if holdings_sync_status == 'synced':
+        return True
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM accounts
+        WHERE user_id = ?
+          AND item_id = ?
+          AND (
+            type = 'investment'
+            OR lower(COALESCE(subtype, '')) IN ('brokerage', '401k', 'ira', 'roth', 'mutual fund')
+          )
+        """,
+        (user_id, item_id)
+    )
+    return cursor.fetchone()[0] > 0
 
 @plaid_bp.route('/api/exchange_public_token', methods=['POST'])
 def exchange_public_token():
@@ -1278,8 +1298,8 @@ def delete_cached_accounts():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@plaid_bp.route('/api/finalize_relink', methods=['POST'])
-def finalize_relink():
+@plaid_bp.route('/api/finalize_replacement', methods=['POST'])
+def finalize_replacement():
     try:
         user_id = current_user_id()
         data = request.get_json(silent=True) or {}
@@ -1311,8 +1331,53 @@ def get_connections():
         user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT item_id, institution_name, status, error_message, holdings_sync_status, holdings_last_synced FROM plaid_tokens WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT item_id, institution_name, status, error_message, last_cursor, holdings_sync_status, holdings_last_synced FROM plaid_tokens WHERE user_id = ?", (user_id,))
         rows = [dict(r) for r in cursor.fetchall()]
+        cursor.execute(
+            """
+            SELECT
+                a.item_id,
+                COALESCE(MAX(a.institution_name), 'Bank Link') AS institution_name,
+                'disconnected' AS status,
+                NULL AS error_message,
+                NULL AS last_cursor,
+                NULL AS holdings_sync_status,
+                NULL AS holdings_last_synced,
+                1 AS is_cached_only,
+                COUNT(DISTINCT a.account_id) AS cached_accounts_count,
+                COUNT(t.transaction_id) AS cached_transactions_count,
+                SUM(CASE WHEN t.reviewed = 1 THEN 1 ELSE 0 END) AS cached_reviewed_transactions_count,
+                MIN(t.date) AS first_transaction_date,
+                MAX(t.date) AS last_transaction_date,
+                COUNT(DISTINCT CASE
+                    WHEN a.type = 'investment'
+                      OR lower(COALESCE(a.subtype, '')) IN ('brokerage', '401k', 'ira', 'roth', 'mutual fund')
+                    THEN a.account_id
+                END) AS cached_investment_accounts_count
+            FROM accounts a
+            LEFT JOIN transactions t
+              ON t.user_id = a.user_id
+             AND t.account_name = a.account_id
+            WHERE a.user_id = ?
+              AND a.item_id IS NOT NULL
+              AND a.item_id NOT IN ('', 'Legacy', 'unknown')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM plaid_tokens p
+                  WHERE p.user_id = a.user_id
+                    AND p.item_id = a.item_id
+              )
+            GROUP BY a.item_id
+            """,
+            (user_id,)
+        )
+        cached_rows = [dict(r) for r in cursor.fetchall()]
+        meta = {}
+        for key in ("last_sync_attempt_at", "last_success_at", "last_sync_time"):
+            cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (f"{user_id}:{key}",))
+            row = cursor.fetchone()
+            if row:
+                meta[key] = row[0]
         
         for r in rows:
             cursor.execute("SELECT COUNT(*) FROM accounts WHERE item_id = ? AND type = 'investment' AND user_id = ?", (r['item_id'], user_id))
@@ -1320,6 +1385,28 @@ def get_connections():
             has_synced_holdings = (r.get('holdings_sync_status') == 'synced')
             has_inv = has_plaid_investment_account or has_synced_holdings
             r['has_investments'] = has_inv
+            r['last_cursor_available'] = bool(r.get('last_cursor'))
+            r['last_sync_attempt_at'] = meta.get('last_sync_attempt_at')
+            r['last_success_at'] = meta.get('last_success_at') or meta.get('last_sync_time')
+            error_code = ''
+            raw_error = r.get('error_message') or ''
+            try:
+                if raw_error.strip().startswith('{'):
+                    error_code = (json.loads(raw_error).get('error_code') or '')
+            except Exception:
+                pass
+            for code in ('ITEM_LOGIN_REQUIRED', 'ADDITIONAL_CONSENT_REQUIRED'):
+                if not error_code and code in raw_error:
+                    error_code = code
+            r['error_code'] = error_code
+        
+        for r in cached_rows:
+            r['has_investments'] = (r.get('cached_investment_accounts_count') or 0) > 0
+            r['last_cursor_available'] = False
+            r['last_sync_attempt_at'] = None
+            r['last_success_at'] = None
+            r['error_code'] = ''
+        rows.extend(cached_rows)
             
         conn.close()
         
@@ -1697,10 +1784,13 @@ def load_account_value_estimates():
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT account_id, date, value, cash_pct, stock_pct, bond_pct, real_estate_pct
-            FROM account_value_estimates
-            WHERE user_id = ?
-            ORDER BY date ASC
+            SELECT e.account_id, e.date, e.value, e.cash_pct, e.stock_pct, e.bond_pct, e.real_estate_pct
+            FROM account_value_estimates e
+            INNER JOIN accounts a
+              ON a.user_id = e.user_id
+             AND a.account_id = e.account_id
+            WHERE e.user_id = ?
+            ORDER BY e.date ASC
             """,
             (user_id,)
         ).fetchall()
@@ -1753,8 +1843,10 @@ def build_allocation_accounts_payload(use_cache=True):
                 res = client.investments_holdings_get(
                     InvestmentsHoldingsGetRequest(access_token=token.get('access_token'))
                 ).to_dict()
+                holdings = res.get('holdings') or []
                 sec_map = {s['security_id']: s for s in (res.get('securities') or [])}
-                for h in res.get('holdings') or []:
+                item_has_holdings = False
+                for h in holdings:
                     account_id = h.get('account_id')
                     if account_id not in accounts_by_id:
                         continue
@@ -1763,8 +1855,63 @@ def build_allocation_accounts_payload(use_cache=True):
                     value = holding_market_value(h, security)
                     account_buckets[account_id][bucket] += value
                     holdings_count_by_account[account_id] += 1
+                    item_has_holdings = True
+                
+                from datetime import datetime, timedelta
+                holdings_sync_status = 'synced' if item_has_holdings else 'no_holdings'
+                has_inv = token.get('item_id') in investment_item_ids
+                if not item_has_holdings and has_inv:
+                    created_at = None
+                    try:
+                        with get_db() as status_conn:
+                            status_cursor = status_conn.cursor()
+                            status_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (token.get('item_id'), user_id))
+                            row = status_cursor.fetchone()
+                            created_at = row[0] if row else None
+                    except Exception:
+                        pass
+                    if created_at:
+                        try:
+                            if datetime.now() - datetime.fromisoformat(created_at) < timedelta(minutes=15):
+                                holdings_sync_status = 'syncing'
+                        except Exception:
+                            pass
+                
+                try:
+                    with get_db() as status_conn:
+                        status_conn.execute(
+                            """
+                            UPDATE plaid_tokens
+                            SET status = 'active', error_message = NULL, holdings_sync_status = ?, holdings_last_synced = ?
+                            WHERE item_id = ? AND user_id = ?
+                            """,
+                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), token.get('item_id'), user_id)
+                        )
+                        status_conn.commit()
+                except Exception as status_err:
+                    print(f"Error updating active holdings status in build_payload: {status_err}")
             except Exception as holdings_err:
                 print(f"Skipping allocation holdings for token {token.get('item_id')}: {holdings_err}")
+                status = 'active'
+                holdings_sync_status = 'failed'
+                try:
+                    if hasattr(holdings_err, 'body'):
+                        err_body = json.loads(holdings_err.body)
+                        err_code = err_body.get('error_code')
+                        if err_code == 'ADDITIONAL_CONSENT_REQUIRED':
+                            status = 'error_consent'
+                            holdings_sync_status = 'error_consent'
+                        elif err_code == 'ITEM_LOGIN_REQUIRED':
+                            status = 'error_login'
+                            holdings_sync_status = 'error_login'
+                    with get_db() as status_conn:
+                        status_conn.execute(
+                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ? AND user_id = ?",
+                            (status, str(holdings_err), holdings_sync_status, token.get('item_id'), user_id)
+                        )
+                        status_conn.commit()
+                except Exception as status_err:
+                    print(f"Error updating holdings error status in build_payload: {status_err}")
 
     rows = []
     totals = empty_asset_buckets()
@@ -1865,7 +2012,7 @@ def get_allocation_history():
                 """
                 SELECT h.date, h.account_id, h.balance_current, a.type
                 FROM account_balances_history h
-                LEFT JOIN accounts a ON h.account_id = a.account_id AND a.user_id = h.user_id
+                INNER JOIN accounts a ON h.account_id = a.account_id AND a.user_id = h.user_id
                 WHERE h.user_id = ?
                 ORDER BY h.date ASC
                 """,
