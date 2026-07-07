@@ -95,7 +95,7 @@ def start_scheduler():
                 total_new = 0
                 for user_id in users:
                     try:
-                        total_new += perform_sync(user_id=user_id)
+                        total_new += int((perform_sync(user_id=user_id) or {}).get("new_transactions_count") or 0)
                     except Exception as user_err:
                         print(f" * [{datetime.now().isoformat()}] Auto-sync failed for user {user_id}: {user_err}")
                 print(f" * [{datetime.now().isoformat()}] Auto-sync complete. Synced {total_new} transactions.")

@@ -41,8 +41,44 @@ def get_institution_name(client, institution_id):
 LAST_BALANCES_FETCH_TIME = 0.0
 
 ASSET_BUCKETS = ("Cash", "Stock", "Bond", "Real Estate")
+CLEAR_CASH_SUBTYPES = {"checking", "savings", "money market", "cd"}
+INVESTMENT_TYPES = {"investment", "brokerage"}
+INVESTMENT_SUBTYPES = {"brokerage", "401k", "ira", "roth", "mutual fund"}
 ALLOCATION_CACHE = {"time": 0.0, "payload": None, "user_id": None}
 ALLOCATION_CACHE_LOCK = threading.Lock()
+
+def lower_field(value):
+    return (value or "").strip().lower()
+
+def account_field(account, key):
+    try:
+        if isinstance(account, dict):
+            return account.get(key)
+        if hasattr(account, "keys") and key in account.keys():
+            return account[key]
+    except Exception:
+        pass
+    return getattr(account, key, None)
+
+def is_cash_management_account(account):
+    subtype = lower_field(account_field(account, "subtype"))
+    name = lower_field(account_field(account, "name"))
+    official = lower_field(account_field(account, "official_name"))
+    return subtype == "cash management" or "cash management" in official or "cma" in name
+
+def is_investment_like_account(account):
+    account_type = lower_field(account_field(account, "type"))
+    subtype = lower_field(account_field(account, "subtype"))
+    return (
+        account_type in INVESTMENT_TYPES
+        or subtype in INVESTMENT_SUBTYPES
+        or is_cash_management_account(account)
+    )
+
+def is_clear_cash_account(account):
+    account_type = lower_field(account_field(account, "type"))
+    subtype = lower_field(account_field(account, "subtype"))
+    return account_type == "depository" and subtype in CLEAR_CASH_SUBTYPES
 
 def empty_asset_buckets():
     return {key: 0.0 for key in ASSET_BUCKETS}
@@ -230,11 +266,21 @@ def normalize_account_asset_buckets(account_summary):
     total = asset_bucket_total(buckets)
 
     if total <= 0:
-        if account_summary.get('type') == 'depository':
+        if is_clear_cash_account(account_summary):
             buckets['Cash'] = balance
-        elif account_summary.get('type') == 'investment':
-            buckets['Cash'] = balance
+            account_summary['allocation_source'] = 'cash_default'
+            account_summary['allocation_warning'] = None
+        else:
+            account_summary['allocation_source'] = 'needs_allocation'
+            account_summary['allocation_warning'] = (
+                "No holdings data available. Set allocation manually or try holdings access."
+                if is_investment_like_account(account_summary)
+                else "No reliable allocation source available."
+            )
         return
+
+    account_summary['allocation_source'] = account_summary.get('allocation_source') or 'holdings'
+    account_summary['allocation_warning'] = account_summary.get('allocation_warning')
 
     if total > balance:
         overage = total - balance
@@ -370,8 +416,7 @@ def create_link_token():
             "client_name": "MeowBillion",
             "country_codes": [CountryCode('US')],
             "language": 'en',
-            "user": LinkTokenCreateRequestUser(client_user_id=user_id),
-            "transactions": LinkTokenTransactions(days_requested=90)
+            "user": LinkTokenCreateRequestUser(client_user_id=user_id)
         }
         
         if access_token:
@@ -380,6 +425,7 @@ def create_link_token():
                 req_args["additional_consented_products"] = [Products('investments')]
         else:
             req_args["products"] = [Products('transactions')]
+            req_args["transactions"] = LinkTokenTransactions(days_requested=90)
             
         req = LinkTokenCreateRequest(**req_args)
         response = client.link_token_create(req)
@@ -388,22 +434,17 @@ def create_link_token():
         return jsonify({"error": str(e)}), 500
 
 def item_has_investment_accounts(cursor, user_id, item_id, holdings_sync_status=None):
-    if holdings_sync_status == 'synced':
-        return True
-    cursor.execute(
+    rows = cursor.execute(
         """
-        SELECT COUNT(*)
+        SELECT type, subtype, name, official_name, institution_name
         FROM accounts
-        WHERE user_id = ?
-          AND item_id = ?
-          AND (
-            type = 'investment'
-            OR lower(COALESCE(subtype, '')) IN ('brokerage', '401k', 'ira', 'roth', 'mutual fund')
-          )
+        WHERE user_id = ? AND item_id = ?
         """,
         (user_id, item_id)
-    )
-    return cursor.fetchone()[0] > 0
+    ).fetchall()
+    if rows:
+        return any(is_investment_like_account(row) for row in rows)
+    return holdings_sync_status == 'synced'
 
 @plaid_bp.route('/api/exchange_public_token', methods=['POST'])
 def exchange_public_token():
@@ -1590,17 +1631,6 @@ def get_portfolio_allocation_details():
                 except Exception as status_err:
                     print(f"Error updating detailed holdings error status: {status_err}")
 
-    for acc in account_rows:
-        if acc.get('type') != 'investment' or acc.get('account_id') in holdings_account_ids:
-            continue
-        inst = ensure_institution(acc.get('item_id'), acc.get('institution_name'))
-        balance = float(acc.get('balance_current') or 0.0)
-        inst["categories"]["Cash"] += balance
-        for account_summary in inst["accounts"]:
-            if account_summary.get("account_id") == acc.get('account_id'):
-                account_summary["categories"]["Cash"] += balance
-                break
-
     result = []
     totals = empty_asset_buckets()
     for inst in institutions.values():
@@ -1830,7 +1860,7 @@ def build_allocation_accounts_payload(use_cache=True):
         raise RuntimeError(f"Database error: {db_err}") from db_err
 
     accounts_by_id = {a['account_id']: a for a in account_rows}
-    investment_item_ids = {a.get('item_id') for a in account_rows if a.get('type') == 'investment'}
+    investment_item_ids = {a.get('item_id') for a in account_rows if is_investment_like_account(a)}
     account_buckets = {a['account_id']: empty_asset_buckets() for a in account_rows}
     holdings_count_by_account = {a['account_id']: 0 for a in account_rows}
 
@@ -1929,23 +1959,41 @@ def build_allocation_accounts_payload(use_cache=True):
         if manual:
             categories = buckets_from_percentages(balance, manual)
             percentages = normalize_percentages(manual)
-            source = "manual"
+            source = "manual_override"
+            warning = None
         else:
             categories = account_buckets.get(account_id) or empty_asset_buckets()
             has_holdings = holdings_count_by_account.get(account_id, 0) > 0
             if has_holdings:
                 account_summary = {
+                    "name": acc.get('name'),
+                    "official_name": acc.get('official_name'),
                     "type": acc_type,
+                    "subtype": acc.get('subtype'),
                     "balance_current": balance,
-                    "categories": categories
+                    "categories": categories,
+                    "allocation_source": "holdings",
+                    "allocation_warning": None
                 }
                 normalize_account_asset_buckets(account_summary)
                 categories = account_summary["categories"]
-                source = "holdings"
+                source = account_summary.get("allocation_source") or "holdings"
+                warning = account_summary.get("allocation_warning")
             else:
-                percentages = normalize_percentages({"Cash": 100})
-                categories = buckets_from_percentages(balance, percentages)
-                source = "default_cash"
+                if is_clear_cash_account(acc):
+                    percentages = normalize_percentages({"Cash": 100})
+                    categories = buckets_from_percentages(balance, percentages)
+                    source = "cash_default"
+                    warning = None
+                else:
+                    percentages = normalize_percentages({})
+                    categories = empty_asset_buckets()
+                    source = "needs_allocation"
+                    warning = (
+                        "No holdings data available. Set allocation manually or try holdings access."
+                        if is_investment_like_account(acc)
+                        else "No reliable allocation source available."
+                    )
 
             total_for_pct = asset_bucket_total(categories)
             percentages = {
@@ -1967,6 +2015,7 @@ def build_allocation_accounts_payload(use_cache=True):
             "categories": {key: categories.get(key, 0.0) for key in ASSET_BUCKETS},
             "percentages": {key: percentages.get(key, 0.0) for key in ASSET_BUCKETS},
             "source": source,
+            "allocation_warning": warning,
             "holdings_count": holdings_count_by_account.get(account_id, 0)
         })
 
@@ -2285,9 +2334,7 @@ def get_portfolio_allocation():
         if acc_id in holdings_account_ids:
             continue
             
-        if acc_type == 'depository':
-            allocation['Cash'] += val
-        elif acc_type == 'investment':
+        if is_clear_cash_account(acc):
             allocation['Cash'] += val
                 
     for asset in load_manual_asset_rows():

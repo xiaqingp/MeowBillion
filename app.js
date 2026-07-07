@@ -1847,9 +1847,13 @@ export async function renderInstitutionAllocationDetails() {
         }
 
         const sourceLabels = {
-            holdings: "Auto",
-            manual: "Manual",
+            holdings: "Holdings",
+            manual_override: "Manual",
+            cash_default: "Cash default",
+            needs_allocation: "Needs allocation",
+            limited_support: "Limited support",
             default_cash: "Cash default",
+            manual: "Manual",
             manual_asset: "Manual asset",
             auto: "Auto"
         };
@@ -1875,13 +1879,16 @@ export async function renderInstitutionAllocationDetails() {
                 const pct = acc.percentages || {};
                 const id = escapeHtml(acc.account_id);
                 const manualDisabled = acc.source === "manual_asset" ? "disabled" : "";
+                const source = acc.source || "auto";
+                const sourceClass = `allocation-source-${escapeHtml(source)}`;
+                const warning = acc.allocation_warning ? ` title="${escapeHtml(acc.allocation_warning)}"` : "";
                 return `
             <tr class="account-allocation-row">
                 <td class="allocation-account-cell">
                     <div class="allocation-primary">${escapeHtml(acc.name || "Account")}</div>
                     <div class="allocation-secondary">${escapeHtml([acc.type, acc.subtype].filter(Boolean).join(" / "))}</div>
                 </td>
-                <td class="allocation-source-cell"><span class="allocation-source">${escapeHtml(sourceLabels[acc.source] || acc.source || "Auto")}</span></td>
+                <td class="allocation-source-cell"><span class="allocation-source ${sourceClass}"${warning}>${escapeHtml(sourceLabels[source] || source || "Auto")}</span></td>
                 <td class="allocation-balance-cell">$${formatCurrency(acc.balance_current || 0)}</td>
                 ${renderBucketCells(acc.categories)}
                 <td class="allocation-percent-cell allocation-manual-cell">
