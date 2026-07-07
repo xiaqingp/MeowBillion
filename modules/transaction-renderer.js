@@ -61,34 +61,34 @@ export function renderTransactionsList() {
                 <div class="review-panel" style="padding: 14px; background-color: var(--bg-main); border-radius: 8px; border: 1px solid var(--border-color);">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 14px;">
                         <div style="display:flex; flex-direction:column; gap:4px;">
-                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">共享标志 (isB)</label>
+                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Split mode</label>
                             <select class="filter-select" id="create-tx-isb" style="width:100%; height:36px; padding:0 8px; border-radius:6px; background-color:var(--bg-card); color:var(--text-primary); border:1px solid var(--border-color);" onchange="onCreateIsBChange()">
-                                <option value="n" selected>自付 100% ('n')</option>
-                                <option value="y">AA分摊 ('y')</option>
-                                <option value="b">伴侣代垫 ('b')</option>
+                                <option value="n" selected>Paid by me</option>
+                                <option value="y">Split</option>
+                                <option value="b">Paid by partner</option>
                             </select>
                         </div>
                         <div style="display:flex; flex-direction:column; gap:4px;">
-                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">个人支付比例 (Ratio)</label>
+                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">My share ratio</label>
                             <input type="number" step="0.01" min="0" max="1" class="filter-select" id="create-tx-ratio" value="1.0" style="width:100%; height:36px; padding:0 8px; border-radius:6px; background-color:var(--bg-card); color:var(--text-primary); border:1px solid var(--border-color);" disabled oninput="updateCreateSplitPreview()">
                         </div>
                         <div style="display:flex; flex-direction:column; gap:4px;">
-                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">代垫退还金 (mown)</label>
+                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Reimbursement</label>
                             <input type="number" step="0.01" class="filter-select" id="create-tx-mown" value="0.0" style="width:100%; height:36px; padding:0 8px; border-radius:6px; background-color:var(--bg-card); color:var(--text-primary); border:1px solid var(--border-color);" oninput="updateCreateSplitPreview()">
                         </div>
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div id="create-split-preview" style="font-size:13px; color:var(--text-secondary);"></div>
                         <div style="display:flex;gap:8px;align-items:center;">
-                            <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">常用快速模板:</span>
+                            <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Quick templates:</span>
                             <button class="btn-quick-create" onclick="applyQuickTemplate('taobao', event)">
-                                <i data-lucide="shopping-bag" style="width:12px;height:12px;color:var(--color-warning);"></i> 淘宝 (-$218.40)
+                                <i data-lucide="shopping-bag" style="width:12px;height:12px;color:var(--color-warning);"></i> Taobao (-$218.40)
                             </button>
                             <button class="btn-quick-create" onclick="applyQuickTemplate('bpay', event)">
                                 <i data-lucide="arrow-down-left" style="width:12px;height:12px;color:var(--color-primary);"></i> Bpay (+$218.40)
                             </button>
                             <button class="btn-quick-create" onclick="applyQuickTemplate('mom', event)">
-                                <i data-lucide="heart" style="width:12px;height:12px;color:#ef4444;"></i> 给妈妈 (-$500)
+                                <i data-lucide="heart" style="width:12px;height:12px;color:#ef4444;"></i> Mom transfer (-$500)
                             </button>
                         </div>
                     </div>
@@ -132,7 +132,7 @@ export function renderTransactionsList() {
         if (t.AccountName === 'Legacy') {
             accountCellHtml = `<div class="account-icon-container" title="Legacy manual entry"><i data-lucide="edit-3" style="width:14px;height:14px;"></i></div>`;
         } else {
-            const tooltipText = t.InstitutionName ? `${t.InstitutionName} - ${t.AccountName}` : (t.AccountName || '未知账户');
+            const tooltipText = t.InstitutionName ? `${t.InstitutionName} - ${t.AccountName}` : (t.AccountName || 'Unknown account');
             accountCellHtml = `<div class="account-icon-container" title="${tooltipText}"><i data-lucide="${iconName}" style="width:14px;height:14px;"></i></div>`;
         }
 
@@ -192,7 +192,7 @@ export function renderTransactionsList() {
             }
         }
 
-        // --- Assemble row matching thead: 时间 | 账户 | 商家 | 金额 | 类别 | 子分类 | 备注 | 对账状态 ---
+        // --- Assemble row matching the table header ---
         tr.innerHTML = `
             <td><strong>${dateText}</strong></td>
             <td style="text-align: center;">${accountCellHtml}</td>
@@ -249,9 +249,9 @@ export function renderTransactionsList() {
             <div style="padding: 10px 14px; background-color: #fffbeb; color: #d97706; border: 1px solid #fcd34d; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 4px;" onclick="event.stopPropagation()">
                 <i data-lucide="info" style="width:16px; height:16px; flex-shrink:0;"></i>
                 <div>
-                    <strong>检测到可能是Transfer！</strong>与 <strong>${t.TransferCandidate.AccountName}</strong> 账户的 <strong>${t.TransferCandidate.Merchant}</strong> (${t.TransferCandidate.Direction === 'inflow' ? '+' : '-'}$${t.TransferCandidate.Amount}) 交易匹配。
+                    <strong>Possible transfer detected.</strong> Matches <strong>${t.TransferCandidate.AccountName}</strong> / <strong>${t.TransferCandidate.Merchant}</strong> (${t.TransferCandidate.Direction === 'inflow' ? '+' : '-'}$${t.TransferCandidate.Amount}).
                 </div>
-                <button class="btn btn-primary" style="margin-left: auto; height: 28px; padding: 0 10px; font-size: 11px; background-color: #d97706; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 700;" onclick="window.confirmInternalTransfer('${t.TransactionID}', '${t.TransferCandidate.TransactionID}', event)">确认为转账</button>
+                <button class="btn btn-primary" style="margin-left: auto; height: 28px; padding: 0 10px; font-size: 11px; background-color: #d97706; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 700;" onclick="window.confirmInternalTransfer('${t.TransactionID}', '${t.TransferCandidate.TransactionID}', event)">Confirm as transfer</button>
             </div>
             `;
         }
@@ -268,8 +268,8 @@ export function renderTransactionsList() {
                         <span><strong>Plaid categories:</strong> ${plaidCategoriesText}</span>
                         <span><strong>Channel:</strong> <span style="text-transform: capitalize;">${t.PaymentChannel || 'N/A'}</span></span>
                         <span><strong>Location:</strong> ${locationText}</span>
-                        <span><strong>账户:</strong> ${t.AccountName || 'N/A'}</span>
-                        <span style="margin-left: auto;"><strong>交易 ID:</strong> <span style="font-family:monospace;font-size:11px;">${t.TransactionID}</span></span>
+                        <span><strong>Account:</strong> ${t.AccountName || 'N/A'}</span>
+                        <span style="margin-left: auto;"><strong>Transaction ID:</strong> <span style="font-family:monospace;font-size:11px;">${t.TransactionID}</span></span>
                     </div>
                     
                     ${transferMatchHtml}
@@ -278,19 +278,19 @@ export function renderTransactionsList() {
                     <div class="review-panel" style="padding: 14px; background-color: var(--bg-main); border-radius: 8px; border: 1px solid var(--border-color);">
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 14px;">
                             <div style="display:flex; flex-direction:column; gap:4px;" onclick="event.stopPropagation()">
-                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">共享标志 (isB)</label>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Split mode</label>
                                 <select class="filter-select" id="isb-select-${t.TransactionID}" style="width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; background-color: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);" ${disabledAttr} onchange="updateSplitPreview('${t.TransactionID}', ${t.Amount}, '${t.Direction}')">
-                                    <option value="n" ${t.IsB === 'n' ? 'selected' : ''}>自付 100% ('n')</option>
-                                    <option value="y" ${t.IsB === 'y' ? 'selected' : ''}>AA分摊 ('y')</option>
-                                    <option value="b" ${t.IsB === 'b' ? 'selected' : ''}>伴侣代垫 ('b')</option>
+                                    <option value="n" ${t.IsB === 'n' ? 'selected' : ''}>Paid by me</option>
+                                    <option value="y" ${t.IsB === 'y' ? 'selected' : ''}>Split</option>
+                                    <option value="b" ${t.IsB === 'b' ? 'selected' : ''}>Paid by partner</option>
                                 </select>
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px;" onclick="event.stopPropagation()">
-                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">个人支付比例 (Ratio)</label>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">My share ratio</label>
                                 <input type="number" step="0.01" min="0" max="1" class="filter-select" id="ratio-input-${t.TransactionID}" value="${t.Ratio}" style="width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; background-color: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);" ${t.IsB !== 'y' || isConfirmed || isPending ? 'disabled' : ''} oninput="updateSplitPreview('${t.TransactionID}', ${t.Amount}, '${t.Direction}')">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:4px;" onclick="event.stopPropagation()">
-                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">代垫退还金 (mown)</label>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Reimbursement</label>
                                 <input type="number" step="0.01" class="filter-select" id="mown-input-${t.TransactionID}" value="${t.Mown}" style="width: 100%; height: 36px; padding: 0 8px; border-radius: 6px; background-color: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color);" ${disabledAttr} oninput="updateSplitPreview('${t.TransactionID}', ${t.Amount}, '${t.Direction}')">
                             </div>
                         </div>
@@ -299,7 +299,7 @@ export function renderTransactionsList() {
                             <div id="preview-${t.TransactionID}" style="font-size:13px; color:var(--text-secondary);"></div>
                             <div>
                                 <button class="btn" ${isPending ? 'disabled' : ''} style="height: 36px; padding: 0 16px; border-radius: 6px; font-weight: 700; cursor: ${isPending ? 'not-allowed' : 'pointer'}; display: inline-flex; align-items: center; gap: 6px; background-color: var(--bg-main); border: 1px solid var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); transition: var(--transition-smooth); opacity: ${isPending ? '0.5' : '1'};" onclick="${isPending ? 'event.stopPropagation()' : `deleteTransaction('${t.TransactionID}', event)`}">
-                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 删除此交易
+                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Delete transaction
                                 </button>
                             </div>
                         </div>
@@ -308,15 +308,15 @@ export function renderTransactionsList() {
                     <!-- Manual Merge Section for Legacy transactions -->
                     ${t.AccountName === 'Legacy' ? `
                     <div class="manual-merge-section" style="padding: 14px; background-color: var(--bg-main); border-radius: 8px; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
-                        <h4 style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin:0;">🔗 手动合并至 Plaid 流水</h4>
-                        <p class="text-xs" style="color:var(--text-secondary); margin:0;">如果这笔历史交易在 Plaid 中已拉取到，输入 Plaid 交易 ID 或选择下方的推荐候选进行精准合并。</p>
+                        <h4 style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin:0;">Merge with Plaid transaction</h4>
+                        <p class="text-xs" style="color:var(--text-secondary); margin:0;">If this historical transaction has been pulled from Plaid, enter a Plaid transaction ID or choose a suggested match below.</p>
                         <div style="display: flex; gap: 8px; align-items: center;" onclick="event.stopPropagation()">
                             <input type="text" id="manual-plaid-id-${t.TransactionID}" class="table-input" placeholder="Target Plaid transaction ID..." style="max-width: 320px; font-family: monospace; font-size: 11px;">
-                            <button class="btn btn-primary" style="height:32px; padding:0 12px; font-size:12px; background-color:var(--color-primary); color:white; border:none; border-radius:6px; cursor:pointer;" onclick="executePreciseMerge('${t.TransactionID}', event)">精准合并</button>
+                            <button class="btn btn-primary" style="height:32px; padding:0 12px; font-size:12px; background-color:var(--color-primary); color:white; border:none; border-radius:6px; cursor:pointer;" onclick="executePreciseMerge('${t.TransactionID}', event)">Merge by ID</button>
                         </div>
                         <div style="border-top: 1px dashed var(--border-color); margin: 4px 0;"></div>
                         <div id="merge-candidates-${t.TransactionID}" style="font-size:12px;">
-                            <span style="color:var(--text-muted);">正在加载潜在的 Plaid 交易候选...</span>
+                            <span style="color:var(--text-muted);">Loading possible Plaid matches...</span>
                         </div>
                     </div>
                     ` : ''}
@@ -357,7 +357,7 @@ function updatePaginationUI() {
     if (prevBtn) prevBtn.disabled = isFirst;
     if (nextBtn) nextBtn.disabled = isLast;
     if (lastBtn) lastBtn.disabled = isLast;
-    if (pageInfo) pageInfo.textContent = `第 ${state.currentPage} / ${state.totalPages} 页`;
+    if (pageInfo) pageInfo.textContent = `Page ${state.currentPage} of ${state.totalPages}`;
 }
 
 export function onRowCategoryChange(txId, isInitial = false, savedSubtype = "") {
@@ -433,9 +433,9 @@ export function updateSplitPreview(txId, amount, direction) {
     }
     
     previewSpan.innerHTML = `
-        <span>个人支付: <strong style="color:var(--color-danger);">-$${ipay.toFixed(2)}</strong></span>
-        <span style="margin-left:12px;">伴侣分摊: <strong style="color:var(--text-muted);">-$${bpay.toFixed(2)}</strong></span>
-        <span style="margin-left:12px;color:var(--color-primary);">代垫: <strong>$${mown.toFixed(2)}</strong></span>
+        <span>Mine: <strong style="color:var(--color-danger);">-$${ipay.toFixed(2)}</strong></span>
+        <span style="margin-left:12px;">Partner share: <strong style="color:var(--text-muted);">-$${bpay.toFixed(2)}</strong></span>
+        <span style="margin-left:12px;color:var(--color-primary);">Reimbursement: <strong>$${mown.toFixed(2)}</strong></span>
     `;
 }
 
@@ -453,12 +453,12 @@ export async function submitTransactionReview(txId, event) {
         const res = await updateTransactionReview(txId, type, isB, ratio, mown, note, subtype);
         if (res.status === "success") {
             const { loadData } = await import('../app.js');
-            await loadData();
+            await loadData({ preserveScroll: true });
         } else {
-            alert("Save对账修改失败: " + res.error);
+            alert("Failed to save review: " + res.error);
         }
     } catch (err) {
-        alert("提交对账修改异常：" + err.message);
+        alert("Review update failed: " + err.message);
     }
 }
 
@@ -475,12 +475,12 @@ export async function toggleTransactionConfirm(txId, event) {
             const res = await unconfirmTransaction(txId);
             if (res.status === "success") {
                 const { loadData } = await import('../app.js');
-                await loadData();
+                await loadData({ preserveScroll: true });
             } else {
-                alert("取消对账状态失败: " + res.error);
+                alert("Failed to reset review status: " + res.error);
             }
         } catch (err) {
-            alert("重置对账异常：" + err.message);
+            alert("Failed to reset review: " + err.message);
         }
     } else {
         // Currently unconfirmed → confirm
@@ -491,21 +491,20 @@ export async function toggleTransactionConfirm(txId, event) {
 export async function deleteTransaction(txId, event) {
     if (event) event.stopPropagation();
     
-    if (!confirm("⚠️ 您确定要彻底删除该笔流水账目吗？\n删除后不可恢复！如果是 Plaid 同步数据，可通过下一次同步重新拉取。")) {
+    if (!confirm("Delete this transaction?\n\nThis cannot be undone. If this transaction came from Plaid, it may reappear after the next sync.")) {
         return;
     }
     
     try {
         const res = await deleteTransactionApi(txId);
         if (res.status === "success") {
-            alert("删除成功！");
             const { loadData } = await import('../app.js');
-            await loadData();
+            await loadData({ preserveScroll: true });
         } else {
-            alert("删除失败: " + res.error);
+            alert("Delete failed: " + res.error);
         }
     } catch (err) {
-        alert("删除交易异常：" + err.message);
+        alert("Delete error: " + err.message);
     }
 }
 

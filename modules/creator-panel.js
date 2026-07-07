@@ -121,7 +121,7 @@ export function updateCreateSplitPreview() {
     if (!previewContainer) return;
     
     if (direction === 'inflow') {
-        previewContainer.innerHTML = `<span style="color: var(--color-success); font-weight:700;">+ $${amountVal.toFixed(2)} (收入自得)</span>`;
+        previewContainer.innerHTML = `<span style="color: var(--color-success); font-weight:700;">+ $${amountVal.toFixed(2)} (Income)</span>`;
         return;
     }
     
@@ -140,9 +140,9 @@ export function updateCreateSplitPreview() {
     }
     
     previewContainer.innerHTML = `
-        <span style="font-weight:700;">个人支付 (ipay): <span style="color:var(--color-danger);">$${Math.abs(ipay).toFixed(2)}</span></span>
-        <span style="margin-left:12px;font-weight:700;">伴侣分摊 (bpay): <span style="color:var(--text-muted);">$${Math.abs(bpay).toFixed(2)}</span></span>
-        <span style="margin-left:12px;font-weight:700;color:var(--color-primary);">代垫退还 (mown): $${mownVal.toFixed(2)}</span>
+            <span style="font-weight:700;">Mine (ipay): <span style="color:var(--color-danger);">$${Math.abs(ipay).toFixed(2)}</span></span>
+            <span style="margin-left:12px;font-weight:700;">Partner share (bpay): <span style="color:var(--text-muted);">$${Math.abs(bpay).toFixed(2)}</span></span>
+            <span style="margin-left:12px;font-weight:700;color:var(--color-primary);">Reimbursement (mown): $${mownVal.toFixed(2)}</span>
     `;
 }
 
@@ -161,7 +161,7 @@ export async function submitCreateManual(event) {
     const mown = parseFloat(document.getElementById("create-tx-mown").value) || 0.0;
     
     if (!merchant || isNaN(amountVal) || amountVal <= 0) {
-        alert("请输入有效的商户名称与记账金额！");
+        alert("Enter a valid merchant and amount.");
         return;
     }
     
@@ -169,7 +169,7 @@ export async function submitCreateManual(event) {
     try {
         const dupRes = await checkDuplicateApi(merchant, date);
         if (dupRes.exists) {
-            if (!confirm(`⚠️ 重复记账提醒：在 ${date.substring(0, 7)} 月份，数据库中已存在 ${dupRes.count} 笔商家为 "${merchant}" 的交易流水。\n\n您确定要继续创建这笔交易吗？`)) {
+            if (!confirm(`Possible duplicate: ${dupRes.count} transaction(s) for "${merchant}" already exist in ${date.substring(0, 7)}.\n\nCreate this transaction anyway?`)) {
                 return;
             }
         }
@@ -193,15 +193,15 @@ export async function submitCreateManual(event) {
         });
         
         if (res.status === "success") {
-            alert("记账保存成功！");
+            alert("Manual transaction saved.");
             toggleCreatePanel(false);
             const { loadData } = await import('../app.js');
             await loadData();
         } else {
-            alert("保存失败: " + res.error);
+            alert("Save failed: " + res.error);
         }
     } catch (err) {
-        alert("保存离线记账交易异常：" + err.message);
+        alert("Manual transaction save failed: " + err.message);
     }
 }
 

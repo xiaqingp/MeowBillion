@@ -218,7 +218,10 @@ def init_db():
             'subtype': "TEXT DEFAULT ''",
             'reviewed': 'INTEGER DEFAULT 0',
             'imported_from_legacy': 'INTEGER DEFAULT 0',
-            'legacy_matched': 'INTEGER DEFAULT 0'
+            'legacy_matched': 'INTEGER DEFAULT 0',
+            'prediction_source': "TEXT DEFAULT ''",
+            'prediction_confidence': 'REAL DEFAULT 0',
+            'prediction_reason': "TEXT DEFAULT ''"
         }
         
         for col_name, col_type in new_columns.items():

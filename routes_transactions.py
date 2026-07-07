@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from database import get_db
 from auth import current_user_id
 from routes_config import load_analysis_rules_config_from_db, load_categories_config_from_db
+from classifier import infer_transaction_classification_from_history, normalize_merchant_key
 
 transactions_bp = Blueprint('transactions', __name__)
 
@@ -33,6 +34,51 @@ def get_analysis_rules():
 
 def configured_category_key(rules, section, fallback):
     return str((rules.get(section) or {}).get("category") or fallback).strip().lower()
+
+def apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id):
+    learned = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
+    if not learned:
+        return 0
+
+    merchant_key = normalize_merchant_key(merchant)
+    if not merchant_key:
+        return 0
+
+    cursor.execute(
+        """
+        SELECT transaction_id, merchant
+        FROM transactions
+        WHERE user_id = ?
+          AND reviewed = 0
+          AND COALESCE(pending, 0) = 0
+          AND imported_from_legacy = 0
+          AND lower(COALESCE(direction, '')) = ?
+        """,
+        (user_id, (direction or "").lower())
+    )
+    targets = [
+        row["transaction_id"]
+        for row in cursor.fetchall()
+        if normalize_merchant_key(row["merchant"]) == merchant_key
+    ]
+    for tx_id in targets:
+        cursor.execute(
+            """
+            UPDATE transactions
+            SET type = ?, subtype = ?, prediction_source = ?, prediction_confidence = ?, prediction_reason = ?
+            WHERE transaction_id = ? AND user_id = ?
+            """,
+            (
+                learned["type"],
+                learned["subtype"],
+                "history",
+                learned.get("confidence", 0.95),
+                learned.get("reason", "Learned from consistent reviewed transactions."),
+                tx_id,
+                user_id
+            )
+        )
+    return len(targets)
 
 def parse_amount_filter(raw):
     text = (raw or '').strip().replace('$', '').replace(',', '')
@@ -178,6 +224,9 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             t.reviewed,
             t.imported_from_legacy,
             t.legacy_matched,
+            t.prediction_source,
+            t.prediction_confidence,
+            t.prediction_reason,
             t.account_name AS account_name_raw,
             a.name AS account_name,
             a.type AS account_type,
@@ -246,6 +295,9 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             "Reviewed": r['reviewed'] or 0,
             "ImportedFromLegacy": r['imported_from_legacy'] or 0,
             "LegacyMatched": r['legacy_matched'] or 0,
+            "PredictionSource": r['prediction_source'] or '',
+            "PredictionConfidence": r['prediction_confidence'] or 0,
+            "PredictionReason": r['prediction_reason'] or '',
             "AccountName": 'Legacy' if r['account_name_raw'] == 'Legacy' else (r['account_name'] or r['transaction_id']),
             "AccountType": r['account_type'],
             "AccountSubtype": r['account_subtype'],
@@ -838,8 +890,8 @@ def update_transaction():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Fetch existing transaction to get direction, amount, and settlement state.
-        cursor.execute("SELECT amount, direction, pending FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
+        # Fetch existing transaction to get direction, amount, merchant, and settlement state.
+        cursor.execute("SELECT amount, direction, merchant, pending FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -850,6 +902,7 @@ def update_transaction():
             
         amount = abs(float(row['amount']))
         direction = row['direction']
+        merchant = row['merchant']
         
         # Calculate ipay and bpay
         if direction == 'inflow':
@@ -874,9 +927,10 @@ def update_transaction():
             """,
             (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, tx_id, user_id)
         )
+        auto_applied_count = apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id)
         conn.commit()
         conn.close()
-        return jsonify({"status": "success"})
+        return jsonify({"status": "success", "auto_applied_count": auto_applied_count})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

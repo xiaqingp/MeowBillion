@@ -3,8 +3,56 @@ import { saveCategoriesConfigApi } from './api.js';
 import { getRulesForCategory } from './utils.js';
 import { renderTransactionsList } from './transaction-renderer.js';
 
+let categoryAutosaveTimer = null;
+let categorySaveRequestId = 0;
+let categoryAutosaveStatus = "idle";
+
 function sortedCategories() {
     return (state.categoriesConfig.categories || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+function setCategoryAutosaveStatus(status) {
+    categoryAutosaveStatus = status;
+    const el = document.getElementById("category-autosave-status");
+    if (!el) return;
+
+    el.classList.remove("saving", "saved", "failed");
+    if (status === "idle") {
+        el.textContent = "";
+    } else if (status === "saving") {
+        el.classList.add("saving");
+        el.textContent = "Saving...";
+    } else if (status === "saved") {
+        el.classList.add("saved");
+        el.textContent = "Saved";
+    } else if (status === "failed") {
+        el.classList.add("failed");
+        el.innerHTML = `Save failed · <button type="button" id="category-autosave-retry">Retry</button>`;
+        document.getElementById("category-autosave-retry")?.addEventListener("click", autosaveCategoriesNow);
+    }
+}
+
+function scheduleCategoriesAutosave() {
+    clearTimeout(categoryAutosaveTimer);
+    setCategoryAutosaveStatus("saving");
+    categoryAutosaveTimer = setTimeout(autosaveCategoriesNow, 500);
+}
+
+async function autosaveCategoriesNow() {
+    const requestId = ++categorySaveRequestId;
+    try {
+        setCategoryAutosaveStatus("saving");
+        const result = await saveCategoriesConfig({ silent: true });
+        if (requestId !== categorySaveRequestId) return;
+        setCategoryAutosaveStatus(result?.status === "success" ? "saved" : "failed");
+        if (result?.status === "success") {
+            window.dispatchEvent(new CustomEvent("categories-config-saved", { detail: { categoriesConfig: state.categoriesConfig } }));
+        }
+    } catch (err) {
+        if (requestId !== categorySaveRequestId) return;
+        console.error("Category autosave failed:", err);
+        setCategoryAutosaveStatus("failed");
+    }
 }
 
 function makeConfigRow(label, iconName, onClick) {
@@ -58,6 +106,7 @@ export function renderCategoryConfigView() {
         });
         onConfigRuleCategoryChange();
     }
+    setCategoryAutosaveStatus(categoryAutosaveStatus);
     lucide.createIcons();
 }
 
@@ -111,6 +160,7 @@ export function addNewCategory() {
     state.categoriesConfig.categories = sortedCategories();
     input.value = "";
     renderCategoryConfigView();
+    scheduleCategoriesAutosave();
 }
 
 export function deleteCategory(cat, event) {
@@ -131,6 +181,7 @@ export function deleteCategory(cat, event) {
     }
 
     renderCategoryConfigView();
+    scheduleCategoriesAutosave();
 }
 
 export function addNewSubcategory() {
@@ -161,6 +212,7 @@ export function addNewSubcategory() {
     state.categoriesConfig.rules[cat].push(subName);
     input.value = "";
     onConfigRuleCategoryChange();
+    scheduleCategoriesAutosave();
 }
 
 export function deleteSubcategory(sub, event) {
@@ -174,10 +226,13 @@ export function deleteSubcategory(sub, event) {
 
     state.categoriesConfig.rules[cat] = state.categoriesConfig.rules[cat].filter(s => s !== sub);
     onConfigRuleCategoryChange();
+    scheduleCategoriesAutosave();
 }
 
-export async function saveCategoriesConfig(buttonId = "btn-save-categories-list") {
-    const saveBtn = document.getElementById(buttonId);
+export async function saveCategoriesConfig(options = {}) {
+    const silent = typeof options === "object" ? Boolean(options.silent) : false;
+    const buttonId = typeof options === "string" ? options : "";
+    const saveBtn = buttonId ? document.getElementById(buttonId) : null;
     const saveLabel = buttonId === "btn-save-subcategories-config" ? "Save subcategories" : "Save categories";
     if (saveBtn) {
         saveBtn.disabled = true;
@@ -188,16 +243,19 @@ export async function saveCategoriesConfig(buttonId = "btn-save-categories-list"
     try {
         const data = await saveCategoriesConfigApi(state.categoriesConfig);
         if (data.status === "success") {
-            alert("Category configuration saved. Filters, transaction review, and manual transaction forms have been updated.");
             const { updateCategoryFilterOptions } = await import('../app.js');
             updateCategoryFilterOptions();
             renderTransactionsList();
-        } else {
+        } else if (!silent) {
             alert("Save failed: " + data.error);
+        } else {
+            return data;
         }
+        return data;
     } catch (err) {
         console.error("Save config error:", err);
-        alert("Save failed: " + err.message);
+        if (!silent) alert("Save failed: " + err.message);
+        return { status: "error", error: err.message };
     } finally {
         if (saveBtn) {
             saveBtn.disabled = false;

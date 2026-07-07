@@ -24,6 +24,7 @@ def infer_transaction_classification_from_history(cursor, merchant, direction, m
         SELECT merchant, type, subtype
         FROM transactions
         WHERE reviewed = 1
+          AND COALESCE(pending, 0) = 0
           {user_clause}
           AND merchant IS NOT NULL
           AND TRIM(merchant) != ''
@@ -54,27 +55,14 @@ def infer_transaction_classification_from_history(cursor, merchant, direction, m
     return {
         "type": learned_type,
         "subtype": learned_subtype,
-        "source": "merchant_history",
+        "source": "history",
+        "confidence": 0.95,
+        "reason": f"Learned from {len(matches)} consistent reviewed transactions.",
         "match_count": len(matches)
     }
 
 
 def predict_custom_type(plaid_primary, plaid_detailed, merchant, is_income):
-    merchant_lower = (merchant or "").lower()
-    
-    # Check merchant name first for common ones
-    if "costco" in merchant_lower or "trader joe" in merchant_lower or "safeway" in merchant_lower or "h mart" in merchant_lower or "grocer" in merchant_lower:
-        return "Groceries"
-    if "amazon" in merchant_lower or "mktplace" in merchant_lower:
-        return "Shopping"
-    if "google fi" in merchant_lower or "ziply" in merchant_lower or "internet" in merchant_lower:
-        return "Internet"
-    if "netflix" in merchant_lower or "spotify" in merchant_lower or "youtube" in merchant_lower or "subscr" in merchant_lower:
-        return "Subscription"
-    if "gas" in merchant_lower or "shell" in merchant_lower or "chevron" in merchant_lower or "exxon" in merchant_lower:
-        return "Gas"
-        
-    # Check Plaid categories
     primary = (plaid_primary or '').upper()
     detailed = (plaid_detailed or '').upper()
     
@@ -110,6 +98,32 @@ def predict_custom_type(plaid_primary, plaid_detailed, merchant, is_income):
         return 'Bank Fees'
         
     return 'Other'
+
+
+def predict_transaction_classification(cursor, plaid_primary, plaid_detailed, merchant, direction, categories, user_id=None):
+    learned = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
+    if learned:
+        return learned
+
+    predicted = constrain_category_to_config(
+        predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == "inflow"),
+        categories
+    )
+    if predicted and predicted != "Other":
+        return {
+            "type": predicted,
+            "subtype": "",
+            "source": "plaid_category",
+            "confidence": 0.6,
+            "reason": "Mapped from Plaid personal finance category."
+        }
+    return {
+        "type": "Other",
+        "subtype": "",
+        "source": "fallback",
+        "confidence": 0.1,
+        "reason": "No stable history or Plaid category mapping matched."
+    }
 
 
 def constrain_category_to_config(category, categories):

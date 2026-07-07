@@ -82,6 +82,12 @@ export async function syncPlaidTransactions() {
             alert(`Sync complete. Imported ${res.new_transactions_count} new transactions.`);
             const { loadData } = await import('../app.js');
             await loadData();
+        } else if (res.status === "partial_success") {
+            alert(`Sync partially completed. Imported ${res.new_transactions_count || 0} new transactions. ${(res.failed_items || []).length} institution needs attention.`);
+            const { loadData } = await import('../app.js');
+            await loadData();
+        } else if (res.status === "failed") {
+            alert(`Sync failed. ${(res.failed_items || []).length} institutions need attention.`);
         } else {
             alert("Sync failed: " + res.error);
         }

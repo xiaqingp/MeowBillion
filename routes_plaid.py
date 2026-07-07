@@ -17,7 +17,7 @@ from plaid.model.link_token_transactions import LinkTokenTransactions
 
 from database import get_db, detect_and_apply_transfer_type
 from auth import current_user_id
-from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type
+from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type, predict_transaction_classification
 from routes_config import load_categories_config_from_db
 from routes_transactions import fetch_paginated_transactions
 
@@ -623,10 +623,17 @@ def get_accounts():
     print(f" * [/api/accounts] Fetch took {duration:.2f}ms")
     return jsonify(accounts_list)
 
+def summarize_sync_results(succeeded_items, failed_items):
+    if succeeded_items and failed_items:
+        return "partial_success"
+    if failed_items and not succeeded_items:
+        return "failed"
+    return "success"
+
 def perform_sync(user_id=None):
     """
     Core sync function that can be run by either the Flask endpoint or scheduler.
-    Returns: new_tx_count
+    Returns: sync summary dict
     """
     user_id = user_id or current_user_id()
     if not user_id:
@@ -638,28 +645,49 @@ def perform_sync(user_id=None):
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT access_token, last_cursor FROM plaid_tokens WHERE user_id = ?", (user_id,))
+    from datetime import datetime as dt_datetime
+    sync_time_str = dt_datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cursor.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)", (f"{user_id}:last_sync_attempt_at", sync_time_str))
+
+    cursor.execute("SELECT access_token, last_cursor, item_id, institution_name FROM plaid_tokens WHERE user_id = ?", (user_id,))
     rows = cursor.fetchall()
     
     if not rows:
+        conn.commit()
         conn.close()
-        raise Exception("No linked bank accounts found.")
+        return {"status": "success", "new_transactions_count": 0, "succeeded_items": [], "failed_items": []}
         
     from datetime import date as dt_date
     today_str = dt_date.today().isoformat()
     new_tx_count = 0
+    succeeded_items = []
+    failed_items = []
     configured_categories = load_categories_config_from_db().get('categories', [])
     
     for r in rows:
         access_token = r['access_token']
+        item_id = r['item_id'] or 'unknown_item'
+        inst_name = r['institution_name'] or 'Bank Link'
+        item_new_count = 0
+        warnings = []
         
         # Fetch and update current balances for these linked accounts
         try:
-            bal_req = AccountsBalanceGetRequest(access_token=access_token)
-            bal_res = client.accounts_balance_get(bal_req)
-            item_id = bal_res.to_dict().get('item', {}).get('item_id', 'unknown_item')
-            inst_id = bal_res.to_dict().get('item', {}).get('institution_id')
-            inst_name = get_institution_name(client, inst_id)
+            try:
+                bal_req = AccountsBalanceGetRequest(access_token=access_token)
+                bal_res = client.accounts_balance_get(bal_req)
+                balance_data = bal_res.to_dict()
+            except Exception as balance_err:
+                balance_data = {"item": {"item_id": item_id}, "accounts": []}
+                warnings.append({
+                    "scope": "balance",
+                    "message": f"Balance update failed, but transactions sync will continue: {balance_err}"
+                })
+
+            item_id = balance_data.get('item', {}).get('item_id', item_id)
+            inst_id = balance_data.get('item', {}).get('institution_id')
+            if inst_id:
+                inst_name = get_institution_name(client, inst_id)
             
             # Update status and metadata to active
             cursor.execute(
@@ -667,7 +695,7 @@ def perform_sync(user_id=None):
                 (item_id, inst_name, access_token, user_id)
             )
             
-            for acc in bal_res.to_dict().get('accounts', []):
+            for acc in balance_data.get('accounts', []):
                 bal = acc.get('balances', {})
                 cursor.execute(
                     """
@@ -772,16 +800,11 @@ def perform_sync(user_id=None):
                     
                     is_income = amount < 0
                     direction = "inflow" if is_income else "outflow"
-                    learned_classification = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
-                    if learned_classification:
-                        custom_type = learned_classification["type"]
-                        custom_subtype = learned_classification["subtype"]
-                    else:
-                        custom_type = constrain_category_to_config(
-                            predict_custom_type(primary, detailed, merchant, is_income),
-                            configured_categories
-                        )
-                        custom_subtype = ''
+                    prediction = predict_transaction_classification(
+                        cursor, primary, detailed, merchant, direction, configured_categories, user_id=user_id
+                    )
+                    custom_type = prediction["type"]
+                    custom_subtype = prediction.get("subtype", "")
                     
                     abs_amount = abs(amount)
                     ipay_val = abs_amount if is_income else -abs_amount
@@ -802,6 +825,11 @@ def perform_sync(user_id=None):
                         if pending_duplicate and int(pending_duplicate['reviewed'] or 0) == 1:
                             custom_type = pending_duplicate['type'] or custom_type
                             custom_subtype = pending_duplicate['subtype'] or custom_subtype
+                            prediction = {
+                                "source": "pending_match",
+                                "confidence": 0.9,
+                                "reason": "Copied from matching reviewed pending transaction."
+                            }
                             ipay_val = float(pending_duplicate['ipay'] or ipay_val)
                             bpay_val = float(pending_duplicate['bpay'] or bpay_val)
                     
@@ -840,8 +868,8 @@ def perform_sync(user_id=None):
                         cursor.execute(
                             """
                             INSERT INTO transactions 
-                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, reviewed, user_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, reviewed, prediction_source, prediction_confidence, prediction_reason, user_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 tx_id, 
@@ -864,6 +892,9 @@ def perform_sync(user_id=None):
                                 note_val,
                                 custom_subtype,
                                 reviewed_val,
+                                prediction.get("source", ""),
+                                prediction.get("confidence", 0.0),
+                                prediction.get("reason", ""),
                                 user_id
                             )
                         )
@@ -884,6 +915,7 @@ def perform_sync(user_id=None):
                             )
                         if tx_id in added_ids:
                             new_tx_count += 1
+                            item_new_count += 1
                 
                 has_more = res_dict.get('has_more', False)
                 cursor_val = res_dict.get('next_cursor', '')
@@ -892,9 +924,16 @@ def perform_sync(user_id=None):
                 "UPDATE plaid_tokens SET last_cursor = ? WHERE access_token = ? AND user_id = ?",
                 (cursor_val, access_token, user_id)
             )
+            succeeded_items.append({
+                "item_id": item_id,
+                "institution_name": inst_name,
+                "new_transactions_count": item_new_count,
+                "warnings": warnings
+            })
         except Exception as token_err:
             status = 'error'
             err_msg = str(token_err)
+            err_code = ''
             try:
                 if hasattr(token_err, 'body'):
                     err_body = json.loads(token_err.body)
@@ -910,25 +949,37 @@ def perform_sync(user_id=None):
                 "UPDATE plaid_tokens SET status = ?, error_message = ? WHERE access_token = ? AND user_id = ?",
                 (status, err_msg, access_token, user_id)
             )
+            failed_items.append({
+                "item_id": item_id,
+                "institution_name": inst_name,
+                "error_code": err_code,
+                "status": status,
+                "message": err_msg
+            })
             print(f"Error syncing token {access_token[:15]}...: {err_msg}")
         
     # Update last sync time
-    from datetime import datetime as dt_datetime
-    sync_time_str = dt_datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)", (f"{user_id}:last_sync_time", sync_time_str))
+    if succeeded_items:
+        cursor.execute("INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)", (f"{user_id}:last_success_at", sync_time_str))
     
     conn.commit()
     conn.close()
-    return new_tx_count
+    status = summarize_sync_results(succeeded_items, failed_items)
+    return {
+        "status": status,
+        "new_transactions_count": new_tx_count,
+        "succeeded_items": succeeded_items,
+        "failed_items": failed_items
+    }
 
 @plaid_bp.route('/api/sync_transactions', methods=['POST'])
 def sync_transactions():
     try:
-        new_tx_count = perform_sync()
+        sync_result = perform_sync()
         result = fetch_paginated_transactions(page=1, limit=100)
         return jsonify({
-            "status": "success", 
-            "new_transactions_count": new_tx_count,
+            **sync_result,
             "transactions": result['transactions'],
             "page": result['page'],
             "limit": result['limit'],

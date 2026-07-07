@@ -77,6 +77,10 @@ if (document.readyState === "loading") {
     initApp();
 }
 
+window.addEventListener("categories-config-saved", () => {
+    updateCategoryFilterOptions();
+});
+
 async function safeFetch(promise, fallbackValue) {
     try {
         return await promise;
@@ -84,6 +88,38 @@ async function safeFetch(promise, fallbackValue) {
         console.warn("Safe fetch failed:", e);
         return fallbackValue;
     }
+}
+
+function debounce(fn, delay = 300) {
+    let timer = null;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+    };
+}
+
+function getScrollSnapshot(selector) {
+    const selected = selector ? document.querySelector(selector) : null;
+    const el = selected || document.querySelector(".main-content") || document.scrollingElement || document.documentElement;
+    const isWindowScroll = el === document.scrollingElement || el === document.documentElement || el === document.body;
+    return {
+        el,
+        isWindowScroll,
+        top: isWindowScroll ? window.scrollY : el.scrollTop,
+        left: isWindowScroll ? window.scrollX : el.scrollLeft
+    };
+}
+
+function restoreScrollSnapshot(snapshot) {
+    if (!snapshot?.el) return;
+    requestAnimationFrame(() => {
+        if (snapshot.isWindowScroll) {
+            window.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: "auto" });
+        } else {
+            snapshot.el.scrollTop = snapshot.top;
+            snapshot.el.scrollLeft = snapshot.left;
+        }
+    });
 }
 
 function normalizeCategoryConfig(config) {
@@ -115,7 +151,7 @@ async function initApp() {
             <tr>
                 <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
-                    <div>正在加载账单数据...</div>
+                    <div>Loading transactions...</div>
                 </td>
             </tr>
         `;
@@ -167,7 +203,7 @@ async function initApp() {
         console.log(`[Performance] initApp completed in ${duration.toFixed(1)}ms`);
         const badge = document.getElementById("load-time-badge");
         if (badge) {
-            badge.textContent = `(加载用时: ${duration.toFixed(0)}ms)`;
+            badge.textContent = `(Loaded in ${duration.toFixed(0)}ms)`;
         }
 
     } catch (err) {
@@ -255,15 +291,16 @@ export async function loadCategoriesConfig() {
     }
 }
 
-export async function loadData() {
+export async function loadData(options = {}) {
     const tStart = performance.now();
+    const scrollSnapshot = options.preserveScroll ? getScrollSnapshot(options.scrollTargetSelector) : null;
     const tbody = document.getElementById("tx-tbody");
     if (tbody) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
-                    <div>正在加载账单数据...</div>
+                    <div>Loading transactions...</div>
                 </td>
             </tr>
         `;
@@ -305,10 +342,14 @@ export async function loadData() {
         console.log(`[Performance] loadData completed in ${duration.toFixed(1)}ms`);
         const badge = document.getElementById("load-time-badge");
         if (badge) {
-            badge.textContent = `(加载用时: ${duration.toFixed(0)}ms)`;
+            badge.textContent = `(Loaded in ${duration.toFixed(0)}ms)`;
         }
     } catch (err) {
         console.error("Error loading data from backend:", err);
+    } finally {
+        if (options.preserveScroll) {
+            restoreScrollSnapshot(scrollSnapshot);
+        }
     }
 }
 
@@ -1872,7 +1913,8 @@ export async function updateTransactionFilterOptions() {
 
 function setupFilters() {
     const searchInput = document.getElementById("tx-search-input");
-    if (searchInput) searchInput.oninput = triggerFilterUpdate;
+    const debouncedFilterUpdate = debounce(triggerFilterUpdate, 300);
+    if (searchInput) searchInput.oninput = debouncedFilterUpdate;
     const monthInput = document.getElementById("tx-month-filter");
     const startDateInput = document.getElementById("tx-start-date");
     const endDateInput = document.getElementById("tx-end-date");
@@ -1899,7 +1941,7 @@ function setupFilters() {
         };
     }
     if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
-    if (amountInput) amountInput.oninput = triggerFilterUpdate;
+    if (amountInput) amountInput.oninput = debouncedFilterUpdate;
     
     initCustomMultiselects(triggerFilterUpdate);
     
@@ -2013,17 +2055,17 @@ window.replaceItemWithNewLink = replaceItemWithNewLink;
 
 window.confirmInternalTransfer = async function(txId1, txId2, event) {
     if (event) event.stopPropagation();
-    if (!confirm("确定要将这两笔交易合并确认为内部转账吗？\n（这会自动将两笔交易归类为 'Internal Transfer' 并设为已对账）")) return;
+    if (!confirm("Confirm these two transactions as an internal transfer?\n\nBoth transactions will be categorized as Internal Transfer and marked reviewed.")) return;
     try {
         const res = await confirmTransferApi(txId1, txId2);
         if (res.status === "success") {
-            alert("已成功确认为内部转账！");
+            alert("Internal transfer confirmed.");
             await loadData();
         } else {
-            alert("确认失败: " + res.error);
+            alert("Confirmation failed: " + res.error);
         }
     } catch (err) {
-        alert("错误: " + err.message);
+        alert("Error: " + err.message);
     }
 };
 

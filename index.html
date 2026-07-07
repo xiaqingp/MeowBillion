@@ -480,7 +480,7 @@
                         <!-- Card 1: Manage Categories -->
                         <div class="card config-card">
                             <div class="config-card-header">
-                                <h3>Transaction Categories</h3>
+                                <h3>Transaction Categories <span id="category-autosave-status" class="autosave-status"></span></h3>
                                 <p>Manage the top-level categories used for review, filters, and reporting.</p>
                             </div>
                             
@@ -497,12 +497,6 @@
                                 <ul id="config-categories-list" class="config-list">
                                     <!-- Dynamic categories list -->
                                 </ul>
-                            </div>
-
-                            <div class="config-actions">
-                                <button class="sync-btn config-action-btn" id="btn-save-categories-list" onclick="saveCategoriesConfig('btn-save-categories-list')">
-                                    <i data-lucide="save" style="width:14px;height:14px;"></i> Save categories
-                                </button>
                             </div>
                         </div>
                         
@@ -532,12 +526,6 @@
                                 <ul id="config-subcategories-list" class="config-list">
                                     <!-- Dynamic subcategories list -->
                                 </ul>
-                            </div>
-                            
-                            <div class="config-actions">
-                                <button class="sync-btn config-action-btn" id="btn-save-subcategories-config" onclick="saveCategoriesConfig('btn-save-subcategories-config')">
-                                    <i data-lucide="save" style="width:14px;height:14px;"></i> Save subcategories
-                                </button>
                             </div>
                         </div>
                     </div>

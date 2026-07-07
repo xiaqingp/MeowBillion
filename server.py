@@ -37,6 +37,7 @@ def index():
 @app.route('/api/credentials_status')
 def credentials_status():
     last_sync = "N/A"
+    last_attempt = "N/A"
     try:
         from database import get_db
         from auth import current_user_id
@@ -45,10 +46,15 @@ def credentials_status():
         creds = load_user_plaid_credentials(user_id)
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (f"{user_id}:last_sync_time",))
-        row = cursor.fetchone()
-        if row:
-            last_sync = row[0]
+        for key, target in ((f"{user_id}:last_success_at", "success"), (f"{user_id}:last_sync_attempt_at", "attempt"), (f"{user_id}:last_sync_time", "legacy")):
+            cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row and target == "success":
+                last_sync = row[0]
+            elif row and target == "attempt":
+                last_attempt = row[0]
+            elif row and target == "legacy" and last_sync == "N/A":
+                last_sync = row[0]
         conn.close()
     except Exception as e:
         print(f"Error querying last_sync_time: {e}")
@@ -57,7 +63,9 @@ def credentials_status():
     return jsonify({
         "has_credentials": bool(creds),
         "env": (creds or {}).get("environment", "development"),
-        "last_sync_time": last_sync
+        "last_sync_time": last_sync,
+        "last_success_at": last_sync,
+        "last_sync_attempt_at": last_attempt
     })
 
 def start_scheduler():

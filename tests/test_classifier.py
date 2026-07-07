@@ -1,7 +1,7 @@
 import sqlite3
 import unittest
 
-from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key
+from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key, predict_transaction_classification
 
 
 def make_conn():
@@ -15,7 +15,9 @@ def make_conn():
             type TEXT,
             subtype TEXT,
             direction TEXT,
-            reviewed INTEGER
+            reviewed INTEGER,
+            pending INTEGER DEFAULT 0,
+            user_id TEXT DEFAULT 'u1'
         )
         """
     )
@@ -27,7 +29,7 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
         conn = make_conn()
         for idx in range(3):
             conn.execute(
-                "INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)",
                 (f"tx_{idx}", "Trader Joe's", "Groceries", "Food", "outflow", 1)
             )
 
@@ -41,7 +43,7 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
         conn = make_conn()
         for idx in range(2):
             conn.execute(
-                "INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)",
                 (f"tx_{idx}", "Costco", "Groceries", "", "outflow", 1)
             )
 
@@ -54,7 +56,7 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
             ("tx_2", "Amazon", "Shopping", "", "outflow", 1),
             ("tx_3", "Amazon", "Subscription", "", "outflow", 1),
         ]
-        conn.executemany("INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?)", rows)
+        conn.executemany("INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)", rows)
 
         self.assertIsNone(infer_transaction_classification_from_history(conn.cursor(), "Amazon", "outflow"))
 
@@ -64,6 +66,33 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
     def test_constrains_prediction_to_user_categories(self):
         self.assertEqual(constrain_category_to_config("Groceries", ["Other", "Rentals", "Travel"]), "Other")
         self.assertEqual(constrain_category_to_config("travel", ["Other", "Rentals", "Travel"]), "Travel")
+
+    def test_prediction_falls_back_to_plaid_category(self):
+        conn = make_conn()
+        prediction = predict_transaction_classification(
+            conn.cursor(), "TRAVEL", "TRAVEL_FLIGHTS", "Any Airline", "outflow", ["Other", "Travel"]
+        )
+
+        self.assertEqual(prediction["type"], "Travel")
+        self.assertEqual(prediction["source"], "plaid_category")
+
+    def test_prediction_falls_back_to_other(self):
+        conn = make_conn()
+        prediction = predict_transaction_classification(
+            conn.cursor(), "GENERAL_SERVICES", "GENERAL_SERVICES_OTHER", "Mystery", "outflow", ["Other", "Travel"]
+        )
+
+        self.assertEqual(prediction["type"], "Other")
+        self.assertEqual(prediction["source"], "fallback")
+
+    def test_hardcoded_merchant_rules_removed(self):
+        conn = make_conn()
+        prediction = predict_transaction_classification(
+            conn.cursor(), "GENERAL_SERVICES", "GENERAL_SERVICES_OTHER", "Amazon", "outflow", ["Other", "Shopping"]
+        )
+
+        self.assertEqual(prediction["type"], "Other")
+        self.assertNotEqual(prediction["source"], "merchant_keyword")
 
 
 if __name__ == "__main__":
