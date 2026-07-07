@@ -1295,6 +1295,11 @@ let responsiveChartResizeBound = false;
 let travelTripsByKey = {};
 let rentalPropertiesByKey = {};
 
+function stableReportKey(prefix, id, fallbackParts = []) {
+    if (id) return `${prefix}:${id}`;
+    return `${prefix}:unassigned:${fallbackParts.map(part => String(part ?? "")).join(":")}`;
+}
+
 function setText(id, value) {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
@@ -1882,7 +1887,7 @@ export async function renderTravelAnalysis() {
                 </tr>
             `);
             (group.trips || []).forEach(trip => {
-                const tripKey = `${trip.year}::${trip.trip}`;
+                const tripKey = stableReportKey("trip", trip.trip_id, [trip.year, trip.trip]);
                 travelTripsByKey[tripKey] = trip;
                 rows.push(`
                     <tr class="travel-trip-row" data-trip-key="${escapeHtml(tripKey)}">
@@ -1988,7 +1993,7 @@ export async function renderRentalAnalysis() {
         `;
 
         propertiesBody.innerHTML = (data.properties || []).map(property => {
-            const key = property.property || "Unassigned";
+            const key = stableReportKey("property", property.property_id, [property.property]);
             rentalPropertiesByKey[key] = property;
             return `
                 <tr class="rental-property-row" data-property-key="${escapeHtml(key)}">
