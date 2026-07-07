@@ -416,11 +416,11 @@ function switchView(viewName) {
 
     const headers = {
         dashboard: { t: "Overview", d: "Track net worth, allocation, and synced account activity." },
-        "monthly-analysis": { t: "Spending Analysis", d: "Monthly and yearly income, expenses, and category trends." },
+        "monthly-analysis": { t: "Spending", d: "Monthly and yearly income, expenses, and category trends." },
         transactions: { t: "Transactions", d: "Review, search, and classify synced transactions." },
-        "travel-analysis": { t: "Travel Spend", d: "Trips, travel categories, and monthly travel spending." },
+        "travel-analysis": { t: "Travel", d: "Trips, travel categories, and monthly travel spending." },
         "rental-analysis": { t: "Rentals", d: "Property-level rental transactions and category summaries." },
-        settings: { t: "Plaid Settings", d: "Manage linked institutions and Plaid connection health." },
+        settings: { t: "Plaid", d: "Manage linked institutions and Plaid connection health." },
         "category-config": { t: "Categories", d: "Manage transaction categories, subcategories, and mapping rules." }
     };
 
@@ -1605,6 +1605,14 @@ function renderTripManager() {
     const container = document.getElementById("trip-manager-container");
     if (!container) return;
     const trips = (state.trips || []).slice().sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
+    const rows = trips.map(trip => `
+        <tr onclick="selectTripManagerItem('${escapeHtml(trip.id)}')">
+            <td>${escapeHtml(trip.year || "")}</td>
+            <td>${escapeHtml(trip.name || "")}</td>
+            <td>${escapeHtml(trip.destination || "")}</td>
+            <td>${escapeHtml(trip.status || "active")}</td>
+        </tr>
+    `).join("");
     container.innerHTML = `
         <div class="metadata-form">
             <select id="trip-manager-select" class="table-select" onchange="fillTripManagerForm()">
@@ -1614,9 +1622,6 @@ function renderTripManager() {
             <input id="trip-name-input" class="table-input" placeholder="Trip name">
             <input id="trip-year-input" class="table-input" type="number" placeholder="Year">
             <input id="trip-destination-input" class="table-input" placeholder="Destination">
-            <input id="trip-budget-input" class="table-input" type="number" step="0.01" placeholder="Budget">
-            <input id="trip-currency-input" class="table-input" placeholder="Currency" value="USD">
-            <input id="trip-travelers-input" class="table-input" placeholder="Travelers">
             <select id="trip-status-input" class="table-select">
                 <option value="active">Active</option>
                 <option value="archived">Archived</option>
@@ -1625,7 +1630,21 @@ function renderTripManager() {
             <button class="sync-btn metadata-action-btn" onclick="saveTripManagerForm(event)">Save trip</button>
             <button class="pagination-btn metadata-action-btn" onclick="archiveTripManagerSelection(event)">Archive</button>
         </div>
+        <div class="analysis-table-wrap mt-4">
+            <table class="analysis-table">
+                <thead><tr><th>Year</th><th>Trip</th><th>Destination</th><th>Status</th></tr></thead>
+                <tbody>${rows || `<tr><td colspan="4" class="allocation-empty">No trips yet.</td></tr>`}</tbody>
+            </table>
+        </div>
     `;
+}
+
+export function selectTripManagerItem(id) {
+    const select = document.getElementById("trip-manager-select");
+    if (select) {
+        select.value = id;
+        fillTripManagerForm();
+    }
 }
 
 export function fillTripManagerForm() {
@@ -1638,9 +1657,6 @@ export function fillTripManagerForm() {
     set("trip-name-input", trip.name || "");
     set("trip-year-input", trip.year || "");
     set("trip-destination-input", trip.destination || "");
-    set("trip-budget-input", trip.budget ?? "");
-    set("trip-currency-input", trip.currency || "USD");
-    set("trip-travelers-input", trip.travelers || "");
     set("trip-status-input", trip.status || "active");
     set("trip-notes-input", trip.notes || "");
 }
@@ -1652,9 +1668,6 @@ export async function saveTripManagerForm(event) {
         name: document.getElementById("trip-name-input")?.value || "",
         year: document.getElementById("trip-year-input")?.value || "",
         destination: document.getElementById("trip-destination-input")?.value || "",
-        budget: document.getElementById("trip-budget-input")?.value || "",
-        currency: document.getElementById("trip-currency-input")?.value || "USD",
-        travelers: document.getElementById("trip-travelers-input")?.value || "",
         status: document.getElementById("trip-status-input")?.value || "active",
         notes: document.getElementById("trip-notes-input")?.value || ""
     };
@@ -1682,6 +1695,14 @@ function renderRentalManager() {
     const container = document.getElementById("rental-manager-container");
     if (!container) return;
     const properties = (state.rentalProperties || []).slice().sort((a, b) => Number(b.active || 0) - Number(a.active || 0) || String(a.name || "").localeCompare(String(b.name || "")));
+    const rows = properties.map(prop => `
+        <tr onclick="selectRentalManagerItem('${escapeHtml(prop.id)}')">
+            <td>${escapeHtml(prop.name || "")}</td>
+            <td>${escapeHtml(prop.city || "")}</td>
+            <td>${escapeHtml(prop.state || "")}</td>
+            <td>${Number(prop.active) === 0 ? "Inactive" : "Active"}</td>
+        </tr>
+    `).join("");
     container.innerHTML = `
         <div class="metadata-form">
             <select id="rental-manager-select" class="table-select" onchange="fillRentalManagerForm(); renderRentalRuleManager();">
@@ -1700,7 +1721,22 @@ function renderRentalManager() {
             <button class="sync-btn metadata-action-btn" onclick="saveRentalManagerForm(event)">Save property</button>
             <button class="pagination-btn metadata-action-btn" onclick="archiveRentalManagerSelection(event)">Archive</button>
         </div>
+        <div class="analysis-table-wrap mt-4">
+            <table class="analysis-table">
+                <thead><tr><th>Property</th><th>City</th><th>State</th><th>Status</th></tr></thead>
+                <tbody>${rows || `<tr><td colspan="4" class="allocation-empty">No rental properties yet.</td></tr>`}</tbody>
+            </table>
+        </div>
     `;
+}
+
+export function selectRentalManagerItem(id) {
+    const select = document.getElementById("rental-manager-select");
+    if (select) {
+        select.value = id;
+        fillRentalManagerForm();
+        renderRentalRuleManager();
+    }
 }
 
 export function fillRentalManagerForm() {
@@ -2515,9 +2551,11 @@ window.renderAssetAllocationChart = renderAssetAllocationChart;
 window.saveAllocationOverride = saveAllocationOverride;
 window.clearAllocationOverride = clearAllocationOverride;
 window.fillTripManagerForm = fillTripManagerForm;
+window.selectTripManagerItem = selectTripManagerItem;
 window.saveTripManagerForm = saveTripManagerForm;
 window.archiveTripManagerSelection = archiveTripManagerSelection;
 window.fillRentalManagerForm = fillRentalManagerForm;
+window.selectRentalManagerItem = selectRentalManagerItem;
 window.saveRentalManagerForm = saveRentalManagerForm;
 window.archiveRentalManagerSelection = archiveRentalManagerSelection;
 window.renderRentalRuleManager = renderRentalRuleManager;
