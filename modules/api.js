@@ -176,6 +176,45 @@ export async function deleteRentalPropertyApi(id) {
     return await res.json();
 }
 
+export async function fetchRentalPropertyRulesApi(propertyId = "") {
+    const suffix = propertyId ? `?rental_property_id=${encodeURIComponent(propertyId)}` : "";
+    const res = await fetch(`/api/rental_property_match_rules${suffix}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
+export async function createRentalPropertyRuleApi(data) {
+    const res = await fetch("/api/rental_property_match_rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function updateRentalPropertyRuleApi(id, data) {
+    const res = await fetch(`/api/rental_property_match_rules/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function deleteRentalPropertyRuleApi(id) {
+    const res = await fetch(`/api/rental_property_match_rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return await res.json();
+}
+
+export async function applyRentalPropertyRulesApi(data) {
+    const res = await fetch("/api/rental_property_match_rules/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
 export async function unconfirmTransaction(txId) {
     const res = await fetch("/api/unconfirm_transaction", {
         method: "POST",

@@ -693,6 +693,238 @@ def summarize_sync_results(succeeded_items, failed_items):
         return "failed"
     return "success"
 
+def fetch_plaid_transaction_updates(client, access_token, cursor_val):
+    if cursor_val:
+        sync_req = TransactionsSyncRequest(access_token=access_token, cursor=cursor_val)
+    else:
+        sync_req = TransactionsSyncRequest(access_token=access_token)
+    res_dict = client.transactions_sync(sync_req).to_dict()
+    return {
+        "added": res_dict.get("added", []),
+        "modified": res_dict.get("modified", []),
+        "removed": res_dict.get("removed", []),
+        "has_more": bool(res_dict.get("has_more", False)),
+        "next_cursor": res_dict.get("next_cursor", "")
+    }
+
+def apply_plaid_transaction_updates(cursor, user_id, updates, configured_categories):
+    import datetime
+
+    added = updates.get("added", [])
+    modified = updates.get("modified", [])
+    removed = updates.get("removed", [])
+    added_ids = {tx.get("transaction_id") for tx in added}
+    new_count = 0
+
+    for removed_tx in removed:
+        removed_id = removed_tx.get("transaction_id")
+        if not removed_id:
+            continue
+        cursor.execute(
+            "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0 AND user_id = ?",
+            (removed_id, user_id)
+        )
+
+    for tx in added + modified:
+        tx_id = tx.get("transaction_id")
+        amount = float(tx.get("amount", 0))
+
+        pf_cat = tx.get("personal_finance_category") or {}
+        primary = pf_cat.get("primary") or "OTHER"
+        detailed = pf_cat.get("detailed") or "OTHER"
+
+        primary_clean = primary.replace("_", " ").title()
+        detailed_clean = detailed.replace(primary + "_", "").replace("_", " ").title()
+        categories_list = [primary_clean]
+        if detailed_clean and detailed_clean != primary_clean:
+            categories_list.append(detailed_clean)
+
+        merchant = tx.get("merchant_name") or tx.get("name", "Unknown")
+        date = tx.get("date")
+        tx_date = date
+        if isinstance(tx_date, str):
+            try:
+                tx_date = datetime.datetime.strptime(tx_date, "%Y-%m-%d").date()
+            except Exception:
+                pass
+        elif isinstance(tx_date, datetime.datetime):
+            tx_date = tx_date.date()
+
+        if isinstance(tx_date, datetime.date):
+            limit_date = datetime.date.today() - datetime.timedelta(days=90)
+            if tx_date < limit_date:
+                continue
+
+        date_str = date.isoformat() if hasattr(date, "isoformat") else str(date)
+        auth_date = tx.get("authorized_date")
+        auth_date_str = auth_date.isoformat() if hasattr(auth_date, "isoformat") else str(auth_date) if auth_date else None
+        pending = 1 if tx.get("pending") else 0
+        categories_json = json.dumps(categories_list)
+        location_json = json.dumps(tx.get("location", {}))
+        payment_channel = tx.get("payment_channel", "other")
+
+        is_income = amount < 0
+        direction = "inflow" if is_income else "outflow"
+        prediction = predict_transaction_classification(
+            cursor, primary, detailed, merchant, direction, configured_categories, user_id=user_id
+        )
+        custom_type = prediction["type"]
+        custom_subtype = prediction.get("subtype", "")
+
+        abs_amount = abs(amount)
+        ipay_val = abs_amount if is_income else -abs_amount
+        bpay_val = 0.0
+        pending_duplicate = None
+        if pending == 0:
+            pending_duplicate = find_pending_duplicate(
+                cursor,
+                tx_id,
+                merchant,
+                abs_amount,
+                direction,
+                tx.get("account_id"),
+                date_str,
+                auth_date_str,
+                user_id
+            )
+            if pending_duplicate and int(pending_duplicate["reviewed"] or 0) == 1:
+                custom_type = pending_duplicate["type"] or custom_type
+                custom_subtype = pending_duplicate["subtype"] or custom_subtype
+                prediction = {
+                    "source": "pending_match",
+                    "confidence": 0.9,
+                    "reason": "Copied from matching reviewed pending transaction."
+                }
+                ipay_val = float(pending_duplicate["ipay"] or ipay_val)
+                bpay_val = float(pending_duplicate["bpay"] or bpay_val)
+
+        cursor.execute(
+            "SELECT reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
+            (tx_id, user_id)
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET date = ?,
+                    authorized_date = ?,
+                    merchant = ?,
+                    amount = ?,
+                    direction = ?,
+                    pending = ?,
+                    categories = ?,
+                    location = ?,
+                    payment_channel = ?,
+                    account_name = ?
+                WHERE transaction_id = ?
+                  AND user_id = ?
+                """,
+                (
+                    date_str,
+                    auth_date_str,
+                    merchant,
+                    abs_amount,
+                    direction,
+                    pending,
+                    categories_json,
+                    location_json,
+                    payment_channel,
+                    tx.get("account_id"),
+                    tx_id,
+                    user_id
+                )
+            )
+            if int(existing["reviewed"] or 0) == 0:
+                cursor.execute(
+                    """
+                    UPDATE transactions
+                    SET type = ?,
+                        subtype = ?,
+                        prediction_source = ?,
+                        prediction_confidence = ?,
+                        prediction_reason = ?
+                    WHERE transaction_id = ?
+                      AND user_id = ?
+                      AND reviewed = 0
+                    """,
+                    (
+                        custom_type,
+                        custom_subtype,
+                        prediction.get("source", ""),
+                        prediction.get("confidence", 0.0),
+                        prediction.get("reason", ""),
+                        tx_id,
+                        user_id
+                    )
+                )
+                apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
+            continue
+
+        reviewed_val = int(pending_duplicate["reviewed"] or 0) if pending_duplicate else 0
+        is_b_val = pending_duplicate["is_b"] if pending_duplicate else "n"
+        ratio_val = float(pending_duplicate["ratio"] or 1.0) if pending_duplicate else 1.0
+        mown_val = float(pending_duplicate["mown"] or 0.0) if pending_duplicate else 0.0
+        note_val = pending_duplicate["note"] if pending_duplicate else ""
+        trip_id_val = pending_duplicate["trip_id"] if pending_duplicate else None
+        rental_property_id_val = pending_duplicate["rental_property_id"] if pending_duplicate else None
+        cursor.execute(
+            """
+            INSERT INTO transactions
+            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, reviewed, prediction_source, prediction_confidence, prediction_reason, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                tx_id,
+                date_str,
+                auth_date_str,
+                custom_type,
+                merchant,
+                abs_amount,
+                direction,
+                pending,
+                categories_json,
+                location_json,
+                payment_channel,
+                tx.get("account_id"),
+                is_b_val,
+                ratio_val,
+                ipay_val,
+                bpay_val,
+                mown_val,
+                note_val,
+                custom_subtype,
+                trip_id_val,
+                rental_property_id_val,
+                reviewed_val,
+                prediction.get("source", ""),
+                prediction.get("confidence", 0.0),
+                prediction.get("reason", ""),
+                user_id
+            )
+        )
+        if pending_duplicate:
+            cursor.execute(
+                "DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?",
+                (pending_duplicate["transaction_id"], user_id)
+            )
+        if reviewed_val == 0:
+            apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
+            detect_and_apply_transfer_type(
+                cursor,
+                tx_id,
+                date_str,
+                abs_amount,
+                direction,
+                tx.get("account_id"),
+                user_id
+            )
+        if tx_id in added_ids:
+            new_count += 1
+
+    return new_count
+
 def perform_sync(user_id=None):
     """
     Core sync function that can be run by either the Flask endpoint or scheduler.
@@ -795,234 +1027,12 @@ def perform_sync(user_id=None):
             has_more = True
             
             while has_more:
-                if cursor_val:
-                    sync_req = TransactionsSyncRequest(access_token=access_token, cursor=cursor_val)
-                else:
-                    sync_req = TransactionsSyncRequest(access_token=access_token)
-                
-                sync_res = client.transactions_sync(sync_req)
-                res_dict = sync_res.to_dict()
-                
-                added = res_dict.get('added', [])
-                modified = res_dict.get('modified', [])
-                removed = res_dict.get('removed', [])
-                added_ids = {tx.get('transaction_id') for tx in added}
-
-                for removed_tx in removed:
-                    removed_id = removed_tx.get('transaction_id')
-                    if not removed_id:
-                        continue
-                    cursor.execute(
-                        "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0 AND user_id = ?",
-                        (removed_id, user_id)
-                    )
-
-                for tx in added + modified:
-                    tx_id = tx.get('transaction_id')
-                    amount = float(tx.get('amount', 0))
-                    
-                    pf_cat = tx.get('personal_finance_category') or {}
-                    primary = pf_cat.get('primary') or 'OTHER'
-                    detailed = pf_cat.get('detailed') or 'OTHER'
-                    
-                    primary_clean = primary.replace('_', ' ').title()
-                    detailed_clean = detailed.replace(primary + '_', '').replace('_', ' ').title()
-                    
-                    categories_list = [primary_clean]
-                    if detailed_clean and detailed_clean != primary_clean:
-                        categories_list.append(detailed_clean)
-                    
-                    merchant = tx.get('merchant_name') or tx.get('name', 'Unknown')
-                    
-                    import datetime
-                    date = tx.get('date')
-                    tx_date = date
-                    if isinstance(tx_date, str):
-                        try:
-                            tx_date = datetime.datetime.strptime(tx_date, "%Y-%m-%d").date()
-                        except:
-                            pass
-                    elif isinstance(tx_date, datetime.datetime):
-                        tx_date = tx_date.date()
-                        
-                    if isinstance(tx_date, datetime.date):
-                        limit_date = datetime.date.today() - datetime.timedelta(days=90)
-                        if tx_date < limit_date:
-                            continue # Skip transactions older than 3 months
-                            
-                    date_str = date.isoformat() if hasattr(date, 'isoformat') else str(date)
-                    
-                    auth_date = tx.get('authorized_date')
-                    auth_date_str = auth_date.isoformat() if hasattr(auth_date, 'isoformat') else str(auth_date) if auth_date else None
-                    
-                    pending = 1 if tx.get('pending') else 0
-                    
-                    categories_json = json.dumps(categories_list)
-                    location_json = json.dumps(tx.get('location', {}))
-                    payment_channel = tx.get('payment_channel', 'other')
-                    
-                    is_income = amount < 0
-                    direction = "inflow" if is_income else "outflow"
-                    prediction = predict_transaction_classification(
-                        cursor, primary, detailed, merchant, direction, configured_categories, user_id=user_id
-                    )
-                    custom_type = prediction["type"]
-                    custom_subtype = prediction.get("subtype", "")
-                    
-                    abs_amount = abs(amount)
-                    ipay_val = abs_amount if is_income else -abs_amount
-                    bpay_val = 0.0
-                    pending_duplicate = None
-                    if pending == 0:
-                        pending_duplicate = find_pending_duplicate(
-                            cursor,
-                            tx_id,
-                            merchant,
-                            abs_amount,
-                            direction,
-                            tx.get('account_id'),
-                            date_str,
-                            auth_date_str,
-                            user_id
-                        )
-                        if pending_duplicate and int(pending_duplicate['reviewed'] or 0) == 1:
-                            custom_type = pending_duplicate['type'] or custom_type
-                            custom_subtype = pending_duplicate['subtype'] or custom_subtype
-                            prediction = {
-                                "source": "pending_match",
-                                "confidence": 0.9,
-                                "reason": "Copied from matching reviewed pending transaction."
-                            }
-                            ipay_val = float(pending_duplicate['ipay'] or ipay_val)
-                            bpay_val = float(pending_duplicate['bpay'] or bpay_val)
-                    
-                    cursor.execute(
-                        "SELECT reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
-                        (tx_id, user_id)
-                    )
-                    existing = cursor.fetchone()
-                    
-                    if existing:
-                        cursor.execute(
-                            """
-                            UPDATE transactions 
-                            SET date = ?,
-                                authorized_date = ?,
-                                merchant = ?,
-                                amount = ?,
-                                direction = ?,
-                                pending = ?,
-                                categories = ?,
-                                location = ?,
-                                payment_channel = ?,
-                                account_name = ?
-                            WHERE transaction_id = ?
-                              AND user_id = ?
-                            """,
-                            (
-                                date_str,
-                                auth_date_str,
-                                merchant,
-                                abs_amount,
-                                direction,
-                                pending,
-                                categories_json,
-                                location_json,
-                                payment_channel,
-                                tx.get('account_id'),
-                                tx_id,
-                                user_id
-                            )
-                        )
-                        if int(existing['reviewed'] or 0) == 0:
-                            cursor.execute(
-                                """
-                                UPDATE transactions
-                                SET type = ?,
-                                    subtype = ?,
-                                    prediction_source = ?,
-                                    prediction_confidence = ?,
-                                    prediction_reason = ?
-                                WHERE transaction_id = ?
-                                  AND user_id = ?
-                                  AND reviewed = 0
-                                """,
-                                (
-                                    custom_type,
-                                    custom_subtype,
-                                    prediction.get("source", ""),
-                                    prediction.get("confidence", 0.0),
-                                    prediction.get("reason", ""),
-                                    tx_id,
-                                    user_id
-                                )
-                            )
-                            apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
-                    else:
-                        reviewed_val = int(pending_duplicate['reviewed'] or 0) if pending_duplicate else 0
-                        is_b_val = pending_duplicate['is_b'] if pending_duplicate else 'n'
-                        ratio_val = float(pending_duplicate['ratio'] or 1.0) if pending_duplicate else 1.0
-                        mown_val = float(pending_duplicate['mown'] or 0.0) if pending_duplicate else 0.0
-                        note_val = pending_duplicate['note'] if pending_duplicate else ''
-                        trip_id_val = pending_duplicate['trip_id'] if pending_duplicate else None
-                        rental_property_id_val = pending_duplicate['rental_property_id'] if pending_duplicate else None
-                        cursor.execute(
-                            """
-                            INSERT INTO transactions 
-                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, reviewed, prediction_source, prediction_confidence, prediction_reason, user_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                tx_id, 
-                                date_str, 
-                                auth_date_str, 
-                                custom_type, 
-                                merchant, 
-                                abs_amount, 
-                                direction,
-                                pending,
-                                categories_json,
-                                location_json,
-                                payment_channel,
-                                tx.get('account_id'),
-                                is_b_val,
-                                ratio_val,
-                                ipay_val,
-                                bpay_val,
-                                mown_val,
-                                note_val,
-                                custom_subtype,
-                                trip_id_val,
-                                rental_property_id_val,
-                                reviewed_val,
-                                prediction.get("source", ""),
-                                prediction.get("confidence", 0.0),
-                                prediction.get("reason", ""),
-                                user_id
-                            )
-                        )
-                        if pending_duplicate:
-                            cursor.execute(
-                                "DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?",
-                                (pending_duplicate['transaction_id'], user_id)
-                            )
-                        if reviewed_val == 0:
-                            apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
-                            detect_and_apply_transfer_type(
-                                cursor,
-                                tx_id,
-                                date_str,
-                                abs_amount,
-                                direction,
-                                tx.get('account_id'),
-                                user_id
-                            )
-                        if tx_id in added_ids:
-                            new_tx_count += 1
-                            item_new_count += 1
-                
-                has_more = res_dict.get('has_more', False)
-                cursor_val = res_dict.get('next_cursor', '')
+                updates = fetch_plaid_transaction_updates(client, access_token, cursor_val)
+                applied_count = apply_plaid_transaction_updates(cursor, user_id, updates, configured_categories)
+                new_tx_count += applied_count
+                item_new_count += applied_count
+                has_more = updates["has_more"]
+                cursor_val = updates["next_cursor"]
                 
             cursor.execute(
                 "UPDATE plaid_tokens SET last_cursor = ? WHERE access_token = ? AND user_id = ?",

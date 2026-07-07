@@ -648,6 +648,59 @@ select:focus, input:focus, button:focus {
     border-top: 1px solid var(--border-color);
 }
 
+.metadata-manager {
+    margin-top: 14px;
+}
+
+.metadata-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    align-items: center;
+}
+
+.metadata-wide-input {
+    grid-column: span 2;
+}
+
+.metadata-action-btn {
+    min-height: 36px;
+    justify-content: center;
+}
+
+.metadata-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.metadata-list-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-main);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.metadata-list-row small {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.metadata-row-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
 /* TABLES */
 .table-container {
     overflow-x: auto;

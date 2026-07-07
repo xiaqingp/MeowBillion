@@ -24,7 +24,18 @@ import {
     fetchPlaidCredentialsApi,
     savePlaidCredentialsApi,
     fetchTripsApi,
-    fetchRentalPropertiesApi
+    createTripApi,
+    updateTripApi,
+    deleteTripApi,
+    fetchRentalPropertiesApi,
+    createRentalPropertyApi,
+    updateRentalPropertyApi,
+    deleteRentalPropertyApi,
+    fetchRentalPropertyRulesApi,
+    createRentalPropertyRuleApi,
+    updateRentalPropertyRuleApi,
+    deleteRentalPropertyRuleApi,
+    applyRentalPropertyRulesApi
 } from './modules/api.js';
 import { 
     loadAccounts, 
@@ -195,6 +206,9 @@ async function initApp() {
         renderAssetAllocationChart();
         renderInstitutionAllocationDetails();
         renderMonthlyAnalysis();
+        renderTripManager();
+        renderRentalManager();
+        await renderRentalRuleManager();
         renderTravelAnalysis();
         renderRentalAnalysis();
         renderTransactionsList();
@@ -339,6 +353,9 @@ export async function loadData(options = {}) {
         renderAssetAllocationChart();
         renderInstitutionAllocationDetails();
         renderMonthlyAnalysis();
+        renderTripManager();
+        renderRentalManager();
+        await renderRentalRuleManager();
         renderTravelAnalysis();
         renderRentalAnalysis();
         renderTransactionsList();
@@ -1570,6 +1587,273 @@ export async function renderMonthlyAnalysis() {
     }
 }
 
+async function refreshContextMetadata() {
+    const [trips, rentalProperties] = await Promise.all([
+        safeFetch(fetchTripsApi(), []),
+        safeFetch(fetchRentalPropertiesApi(), [])
+    ]);
+    state.trips = trips || [];
+    state.rentalProperties = rentalProperties || [];
+}
+
+function renderTripManager() {
+    const container = document.getElementById("trip-manager-container");
+    if (!container) return;
+    const trips = (state.trips || []).slice().sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
+    container.innerHTML = `
+        <div class="metadata-form">
+            <select id="trip-manager-select" class="table-select" onchange="fillTripManagerForm()">
+                <option value="">New trip</option>
+                ${trips.map(trip => `<option value="${escapeHtml(trip.id)}">${escapeHtml(`${trip.year || ""} ${trip.name}`.trim())}${trip.status === "archived" ? " (archived)" : ""}</option>`).join("")}
+            </select>
+            <input id="trip-name-input" class="table-input" placeholder="Trip name">
+            <input id="trip-year-input" class="table-input" type="number" placeholder="Year">
+            <input id="trip-destination-input" class="table-input" placeholder="Destination">
+            <input id="trip-budget-input" class="table-input" type="number" step="0.01" placeholder="Budget">
+            <input id="trip-currency-input" class="table-input" placeholder="Currency" value="USD">
+            <input id="trip-travelers-input" class="table-input" placeholder="Travelers">
+            <select id="trip-status-input" class="table-select">
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+            </select>
+            <input id="trip-notes-input" class="table-input metadata-wide-input" placeholder="Notes">
+            <button class="sync-btn metadata-action-btn" onclick="saveTripManagerForm(event)">Save trip</button>
+            <button class="pagination-btn metadata-action-btn" onclick="archiveTripManagerSelection(event)">Archive</button>
+        </div>
+    `;
+}
+
+export function fillTripManagerForm() {
+    const id = document.getElementById("trip-manager-select")?.value || "";
+    const trip = (state.trips || []).find(item => item.id === id) || {};
+    const set = (field, value) => {
+        const el = document.getElementById(field);
+        if (el) el.value = value ?? "";
+    };
+    set("trip-name-input", trip.name || "");
+    set("trip-year-input", trip.year || "");
+    set("trip-destination-input", trip.destination || "");
+    set("trip-budget-input", trip.budget ?? "");
+    set("trip-currency-input", trip.currency || "USD");
+    set("trip-travelers-input", trip.travelers || "");
+    set("trip-status-input", trip.status || "active");
+    set("trip-notes-input", trip.notes || "");
+}
+
+export async function saveTripManagerForm(event) {
+    if (event) event.preventDefault();
+    const id = document.getElementById("trip-manager-select")?.value || "";
+    const payload = {
+        name: document.getElementById("trip-name-input")?.value || "",
+        year: document.getElementById("trip-year-input")?.value || "",
+        destination: document.getElementById("trip-destination-input")?.value || "",
+        budget: document.getElementById("trip-budget-input")?.value || "",
+        currency: document.getElementById("trip-currency-input")?.value || "USD",
+        travelers: document.getElementById("trip-travelers-input")?.value || "",
+        status: document.getElementById("trip-status-input")?.value || "active",
+        notes: document.getElementById("trip-notes-input")?.value || ""
+    };
+    const res = id ? await updateTripApi(id, payload) : await createTripApi(payload);
+    if (res.error) return alert(res.error);
+    await refreshContextMetadata();
+    renderTripManager();
+    renderTravelAnalysis();
+    renderTransactionsList();
+}
+
+export async function archiveTripManagerSelection(event) {
+    if (event) event.preventDefault();
+    const id = document.getElementById("trip-manager-select")?.value || "";
+    if (!id) return;
+    const res = await deleteTripApi(id);
+    if (res.error) return alert(res.error);
+    await refreshContextMetadata();
+    renderTripManager();
+    renderTravelAnalysis();
+    renderTransactionsList();
+}
+
+function renderRentalManager() {
+    const container = document.getElementById("rental-manager-container");
+    if (!container) return;
+    const properties = (state.rentalProperties || []).slice().sort((a, b) => Number(b.active || 0) - Number(a.active || 0) || String(a.name || "").localeCompare(String(b.name || "")));
+    container.innerHTML = `
+        <div class="metadata-form">
+            <select id="rental-manager-select" class="table-select" onchange="fillRentalManagerForm(); renderRentalRuleManager();">
+                <option value="">New property</option>
+                ${properties.map(prop => `<option value="${escapeHtml(prop.id)}">${escapeHtml(prop.name)}${Number(prop.active) === 0 ? " (inactive)" : ""}</option>`).join("")}
+            </select>
+            <input id="rental-name-input" class="table-input" placeholder="Property name">
+            <input id="rental-address-input" class="table-input" placeholder="Address">
+            <input id="rental-city-input" class="table-input" placeholder="City">
+            <input id="rental-state-input" class="table-input" placeholder="State">
+            <select id="rental-active-input" class="table-select">
+                <option value="1">Active</option>
+                <option value="0">Inactive</option>
+            </select>
+            <input id="rental-notes-input" class="table-input metadata-wide-input" placeholder="Notes">
+            <button class="sync-btn metadata-action-btn" onclick="saveRentalManagerForm(event)">Save property</button>
+            <button class="pagination-btn metadata-action-btn" onclick="archiveRentalManagerSelection(event)">Archive</button>
+        </div>
+    `;
+}
+
+export function fillRentalManagerForm() {
+    const id = document.getElementById("rental-manager-select")?.value || "";
+    const prop = (state.rentalProperties || []).find(item => item.id === id) || {};
+    const set = (field, value) => {
+        const el = document.getElementById(field);
+        if (el) el.value = value ?? "";
+    };
+    set("rental-name-input", prop.name || "");
+    set("rental-address-input", prop.address || "");
+    set("rental-city-input", prop.city || "");
+    set("rental-state-input", prop.state || "");
+    set("rental-active-input", prop.active ?? 1);
+    set("rental-notes-input", prop.notes || "");
+}
+
+export async function saveRentalManagerForm(event) {
+    if (event) event.preventDefault();
+    const id = document.getElementById("rental-manager-select")?.value || "";
+    const payload = {
+        name: document.getElementById("rental-name-input")?.value || "",
+        address: document.getElementById("rental-address-input")?.value || "",
+        city: document.getElementById("rental-city-input")?.value || "",
+        state: document.getElementById("rental-state-input")?.value || "",
+        active: Number(document.getElementById("rental-active-input")?.value || 1),
+        notes: document.getElementById("rental-notes-input")?.value || ""
+    };
+    const res = id ? await updateRentalPropertyApi(id, payload) : await createRentalPropertyApi(payload);
+    if (res.error) return alert(res.error);
+    await refreshContextMetadata();
+    renderRentalManager();
+    await renderRentalRuleManager();
+    renderRentalAnalysis();
+    renderTransactionsList();
+}
+
+export async function archiveRentalManagerSelection(event) {
+    if (event) event.preventDefault();
+    const id = document.getElementById("rental-manager-select")?.value || "";
+    if (!id) return;
+    const res = await deleteRentalPropertyApi(id);
+    if (res.error) return alert(res.error);
+    await refreshContextMetadata();
+    renderRentalManager();
+    await renderRentalRuleManager();
+    renderRentalAnalysis();
+    renderTransactionsList();
+}
+
+export async function renderRentalRuleManager() {
+    const container = document.getElementById("rental-rule-manager-container");
+    if (!container) return;
+    const propertyId = document.getElementById("rental-manager-select")?.value || (state.rentalProperties || [])[0]?.id || "";
+    if (!propertyId) {
+        container.innerHTML = `<div class="allocation-empty">Create or select a rental property first.</div>`;
+        return;
+    }
+    const rules = await safeFetch(fetchRentalPropertyRulesApi(propertyId), []);
+    container.innerHTML = `
+        <div class="metadata-form">
+            <input id="rental-rule-id-input" type="hidden">
+            <input id="rental-rule-name-input" class="table-input" placeholder="Rule name">
+            <input id="rental-rule-merchant-input" class="table-input" placeholder="Merchant contains">
+            <input id="rental-rule-account-input" class="table-input" placeholder="Account contains">
+            <select id="rental-rule-direction-input" class="table-select">
+                <option value="">Any direction</option>
+                <option value="outflow">Outflow</option>
+                <option value="inflow">Inflow</option>
+            </select>
+            <input id="rental-rule-min-input" class="table-input" type="number" step="0.01" placeholder="Min amount">
+            <input id="rental-rule-max-input" class="table-input" type="number" step="0.01" placeholder="Max amount">
+            <input id="rental-rule-subtype-input" class="table-input" placeholder="Default subtype">
+            <select id="rental-rule-enabled-input" class="table-select">
+                <option value="1">Enabled</option>
+                <option value="0">Disabled</option>
+            </select>
+            <button class="sync-btn metadata-action-btn" onclick="saveRentalRuleForm(event)">Save rule</button>
+            <button class="pagination-btn metadata-action-btn" onclick="clearRentalRuleForm(event)">New rule</button>
+            <button class="pagination-btn metadata-action-btn" onclick="applyRentalRules(event)">Apply to unreviewed</button>
+        </div>
+        <div class="metadata-list">
+            ${rules.map(rule => `
+                <div class="metadata-list-row" onclick="fillRentalRuleForm('${escapeHtml(rule.id)}')">
+                    <span>${escapeHtml(rule.name || rule.merchant_contains || "Rule")}</span>
+                    <small>${escapeHtml([rule.merchant_contains, rule.account_name_contains, rule.direction, rule.default_subtype].filter(Boolean).join(" / "))}</small>
+                    <span class="metadata-row-actions">
+                        <button class="pagination-btn" onclick="deleteRentalRule('${escapeHtml(rule.id)}', event)">Delete</button>
+                    </span>
+                </div>
+            `).join("") || `<div class="allocation-empty">No rules yet.</div>`}
+        </div>
+    `;
+    container.dataset.rules = JSON.stringify(rules);
+}
+
+export function fillRentalRuleForm(ruleId) {
+    const container = document.getElementById("rental-rule-manager-container");
+    const rules = JSON.parse(container?.dataset.rules || "[]");
+    const rule = rules.find(item => item.id === ruleId) || {};
+    const set = (field, value) => {
+        const el = document.getElementById(field);
+        if (el) el.value = value ?? "";
+    };
+    set("rental-rule-id-input", rule.id || "");
+    set("rental-rule-name-input", rule.name || "");
+    set("rental-rule-merchant-input", rule.merchant_contains || "");
+    set("rental-rule-account-input", rule.account_name_contains || "");
+    set("rental-rule-direction-input", rule.direction || "");
+    set("rental-rule-min-input", rule.amount_min ?? "");
+    set("rental-rule-max-input", rule.amount_max ?? "");
+    set("rental-rule-subtype-input", rule.default_subtype || "");
+    set("rental-rule-enabled-input", rule.enabled ?? 1);
+}
+
+export function clearRentalRuleForm(event) {
+    if (event) event.preventDefault();
+    fillRentalRuleForm("");
+}
+
+export async function saveRentalRuleForm(event) {
+    if (event) event.preventDefault();
+    const propertyId = document.getElementById("rental-manager-select")?.value || (state.rentalProperties || [])[0]?.id || "";
+    const ruleId = document.getElementById("rental-rule-id-input")?.value || "";
+    if (!propertyId) return alert("Select a rental property first.");
+    const payload = {
+        rental_property_id: propertyId,
+        name: document.getElementById("rental-rule-name-input")?.value || "",
+        merchant_contains: document.getElementById("rental-rule-merchant-input")?.value || "",
+        account_name_contains: document.getElementById("rental-rule-account-input")?.value || "",
+        direction: document.getElementById("rental-rule-direction-input")?.value || "",
+        amount_min: document.getElementById("rental-rule-min-input")?.value || "",
+        amount_max: document.getElementById("rental-rule-max-input")?.value || "",
+        default_subtype: document.getElementById("rental-rule-subtype-input")?.value || "",
+        enabled: Number(document.getElementById("rental-rule-enabled-input")?.value || 1)
+    };
+    const res = ruleId ? await updateRentalPropertyRuleApi(ruleId, payload) : await createRentalPropertyRuleApi(payload);
+    if (res.error) return alert(res.error);
+    await renderRentalRuleManager();
+}
+
+export async function deleteRentalRule(ruleId, event) {
+    if (event) event.stopPropagation();
+    const res = await deleteRentalPropertyRuleApi(ruleId);
+    if (res.error) return alert(res.error);
+    await renderRentalRuleManager();
+}
+
+export async function applyRentalRules(event) {
+    if (event) event.preventDefault();
+    const propertyId = document.getElementById("rental-manager-select")?.value || "";
+    const ruleId = document.getElementById("rental-rule-id-input")?.value || "";
+    const res = await applyRentalPropertyRulesApi({ rental_property_id: propertyId, rule_id: ruleId });
+    if (res.error) return alert(res.error);
+    alert(`Updated ${res.updated_count || 0} transaction(s).`);
+    await loadData({ preserveScroll: true });
+}
+
 export async function renderTravelAnalysis() {
     const tripsHead = document.getElementById("travel-trips-thead");
     const tripsBody = document.getElementById("travel-trips-tbody");
@@ -2225,6 +2509,18 @@ window.renderBalanceTrendChart = renderBalanceTrendChart;
 window.renderAssetAllocationChart = renderAssetAllocationChart;
 window.saveAllocationOverride = saveAllocationOverride;
 window.clearAllocationOverride = clearAllocationOverride;
+window.fillTripManagerForm = fillTripManagerForm;
+window.saveTripManagerForm = saveTripManagerForm;
+window.archiveTripManagerSelection = archiveTripManagerSelection;
+window.fillRentalManagerForm = fillRentalManagerForm;
+window.saveRentalManagerForm = saveRentalManagerForm;
+window.archiveRentalManagerSelection = archiveRentalManagerSelection;
+window.renderRentalRuleManager = renderRentalRuleManager;
+window.fillRentalRuleForm = fillRentalRuleForm;
+window.clearRentalRuleForm = clearRentalRuleForm;
+window.saveRentalRuleForm = saveRentalRuleForm;
+window.deleteRentalRule = deleteRentalRule;
+window.applyRentalRules = applyRentalRules;
 window.loadData = loadData;
 window.linkNewBank = linkNewBank;
 window.replaceItemWithNewLink = replaceItemWithNewLink;
