@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import uuid
 from classifier import infer_transaction_classification_from_history, predict_custom_type
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finance.db')
@@ -15,7 +16,194 @@ USER_SCOPED_TABLES = [
     'manual_asset_values',
     'allocation_history_snapshots',
     'account_value_estimates',
+    'trips',
+    'rental_properties',
+    'rental_property_match_rules',
 ]
+
+DEFAULT_ANALYSIS_RULES_CONFIG = {
+    "travel": {
+        "category": "Travel",
+        "trip_source": "note",
+        "category_source": "subtype",
+        "year_prefix": True,
+        "fallback_year": "Note",
+    },
+    "rentals": {
+        "category": "Rentals",
+        "property_source": "note",
+        "category_source": "subtype",
+        "fallback_property": "Unassigned",
+        "fallback_category": "Unclassified",
+    },
+}
+
+
+def _load_analysis_rules_for_user(conn, user_id):
+    keys = [f"{user_id}:analysis_rules"] if user_id else []
+    keys.append("analysis_rules")
+    for key in keys:
+        row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+        if row:
+            try:
+                data = json.loads(row["value"])
+                if isinstance(data, dict):
+                    merged = json.loads(json.dumps(DEFAULT_ANALYSIS_RULES_CONFIG))
+                    for section, defaults in DEFAULT_ANALYSIS_RULES_CONFIG.items():
+                        incoming = data.get(section) if isinstance(data.get(section), dict) else {}
+                        for name, default in defaults.items():
+                            merged[section][name] = incoming.get(name, default)
+                    return merged
+            except Exception:
+                pass
+    return json.loads(json.dumps(DEFAULT_ANALYSIS_RULES_CONFIG))
+
+
+def _transaction_field(row, field_name, fallback=""):
+    if field_name not in {"note", "subtype", "merchant"}:
+        return fallback
+    return row[field_name] or fallback
+
+
+def _parse_trip_name(value, tx_date=None, year_prefix=True, fallback_year="Note"):
+    text = (value or "").strip()
+    tx_year = (tx_date or "")[:4]
+    fallback = tx_year if tx_year.isdigit() else (fallback_year or "Note")
+    if not text:
+        return fallback, f"Unassigned Travel {fallback}"
+    year = text[:4]
+    if year_prefix and year.isdigit():
+        trip = text[4:].strip(" -_|:/") or text
+        return year, trip[:64]
+    return fallback, text[:64]
+
+
+def get_or_create_trip(conn, user_id, name, year, destination=None):
+    clean_name = (name or "").strip() or f"Unassigned Travel {year or 'Unknown'}"
+    clean_year = int(year) if str(year or "").isdigit() else None
+    row = conn.execute(
+        """
+        SELECT id FROM trips
+        WHERE user_id = ?
+          AND COALESCE(year, -1) = COALESCE(?, -1)
+          AND lower(name) = lower(?)
+        LIMIT 1
+        """,
+        (user_id, clean_year, clean_name),
+    ).fetchone()
+    if row:
+        return row["id"]
+    trip_id = f"trip_{uuid.uuid4().hex}"
+    conn.execute(
+        """
+        INSERT INTO trips (id, user_id, name, year, destination)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (trip_id, user_id, clean_name, clean_year, destination),
+    )
+    return trip_id
+
+
+def get_or_create_rental_property(conn, user_id, name):
+    clean_name = (name or "").strip() or "Unassigned Rental Property"
+    row = conn.execute(
+        """
+        SELECT id FROM rental_properties
+        WHERE user_id = ? AND lower(name) = lower(?)
+        LIMIT 1
+        """,
+        (user_id, clean_name),
+    ).fetchone()
+    if row:
+        return row["id"]
+    property_id = f"rprop_{uuid.uuid4().hex}"
+    conn.execute(
+        """
+        INSERT INTO rental_properties (id, user_id, name)
+        VALUES (?, ?, ?)
+        """,
+        (property_id, user_id, clean_name),
+    )
+    return property_id
+
+
+def migrate_travel_contexts(conn):
+    users = [
+        row["user_id"]
+        for row in conn.execute(
+            """
+            SELECT DISTINCT user_id FROM transactions
+            WHERE user_id IS NOT NULL AND user_id != ''
+            """
+        ).fetchall()
+    ]
+    for user_id in users:
+        rules = _load_analysis_rules_for_user(conn, user_id)
+        travel_rules = rules.get("travel") or {}
+        category = str(travel_rules.get("category") or "Travel").strip().lower()
+        rows = conn.execute(
+            """
+            SELECT transaction_id, date, merchant, note, subtype
+            FROM transactions
+            WHERE user_id = ?
+              AND lower(COALESCE(type, '')) = ?
+              AND (trip_id IS NULL OR trip_id = '')
+            """,
+            (user_id, category),
+        ).fetchall()
+        for row in rows:
+            source = _transaction_field(row, travel_rules.get("trip_source"), "")
+            year, name = _parse_trip_name(
+                source,
+                row["date"],
+                bool(travel_rules.get("year_prefix", True)),
+                travel_rules.get("fallback_year") or "Note",
+            )
+            trip_id = get_or_create_trip(conn, user_id, name, year)
+            conn.execute(
+                "UPDATE transactions SET trip_id = ? WHERE transaction_id = ? AND user_id = ?",
+                (trip_id, row["transaction_id"], user_id),
+            )
+
+
+def migrate_rental_contexts(conn):
+    users = [
+        row["user_id"]
+        for row in conn.execute(
+            """
+            SELECT DISTINCT user_id FROM transactions
+            WHERE user_id IS NOT NULL AND user_id != ''
+            """
+        ).fetchall()
+    ]
+    for user_id in users:
+        rules = _load_analysis_rules_for_user(conn, user_id)
+        rental_rules = rules.get("rentals") or {}
+        category = str(rental_rules.get("category") or "Rentals").strip().lower()
+        fallback = rental_rules.get("fallback_property") or "Unassigned Rental Property"
+        rows = conn.execute(
+            """
+            SELECT transaction_id, merchant, note, subtype
+            FROM transactions
+            WHERE user_id = ?
+              AND lower(COALESCE(type, '')) = ?
+              AND (rental_property_id IS NULL OR rental_property_id = '')
+            """,
+            (user_id, category),
+        ).fetchall()
+        for row in rows:
+            name = (_transaction_field(row, rental_rules.get("property_source"), fallback) or fallback).strip()
+            if name.lower() == "unassigned":
+                name = "Unassigned Rental Property"
+            property_id = get_or_create_rental_property(conn, user_id, name)
+            conn.execute(
+                """
+                UPDATE transactions
+                SET rental_property_id = ?
+                WHERE transaction_id = ? AND user_id = ?
+                """,
+                (property_id, row["transaction_id"], user_id),
+            )
 
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=30.0)
@@ -189,6 +377,53 @@ def init_db():
             PRIMARY KEY (account_id, date)
         )
         ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS trips (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            year INTEGER,
+            destination TEXT,
+            budget REAL,
+            currency TEXT DEFAULT 'USD',
+            travelers TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS rental_properties (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            address TEXT,
+            city TEXT,
+            state TEXT,
+            active INTEGER DEFAULT 1,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS rental_property_match_rules (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            rental_property_id TEXT NOT NULL,
+            name TEXT,
+            merchant_contains TEXT,
+            account_name_contains TEXT,
+            direction TEXT,
+            amount_min REAL,
+            amount_max REAL,
+            default_subtype TEXT,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
         conn.commit()
 
         cursor = conn.cursor()
@@ -221,7 +456,9 @@ def init_db():
             'legacy_matched': 'INTEGER DEFAULT 0',
             'prediction_source': "TEXT DEFAULT ''",
             'prediction_confidence': 'REAL DEFAULT 0',
-            'prediction_reason': "TEXT DEFAULT ''"
+            'prediction_reason': "TEXT DEFAULT ''",
+            'trip_id': 'TEXT',
+            'rental_property_id': 'TEXT'
         }
         
         for col_name, col_type in new_columns.items():
@@ -302,6 +539,14 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_plaid_tokens_user ON plaid_tokens(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_user_date ON account_balances_history(user_id, date DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_user_year ON trips(user_id, year, name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rental_properties_user_active ON rental_properties(user_id, active, name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rental_rules_property ON rental_property_match_rules(user_id, rental_property_id, enabled)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_user_trip ON transactions(user_id, trip_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_user_rental_property ON transactions(user_id, rental_property_id)")
+
+        migrate_travel_contexts(conn)
+        migrate_rental_contexts(conn)
 
         env_client_id = os.getenv('PLAID_CLIENT_ID', '').strip()
         env_secret = os.getenv('PLAID_SECRET', '').strip()

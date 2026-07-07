@@ -44,6 +44,9 @@ def adopt_unowned_data(conn, user_id):
         "manual_asset_values",
         "allocation_history_snapshots",
         "account_value_estimates",
+        "trips",
+        "rental_properties",
+        "rental_property_match_rules",
     ]
     for table in tables:
         conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL OR user_id = ''", (user_id,))

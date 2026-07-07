@@ -7,6 +7,7 @@ from database import init_db
 from routes_plaid import plaid_bp
 from routes_transactions import transactions_bp
 from routes_config import config_bp
+from routes_metadata import metadata_bp
 from auth import auth_bp
 
 load_dotenv()
@@ -19,6 +20,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(plaid_bp)
 app.register_blueprint(transactions_bp)
 app.register_blueprint(config_bp)
+app.register_blueprint(metadata_bp)
 
 
 @app.before_request
