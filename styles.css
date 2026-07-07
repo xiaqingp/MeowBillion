@@ -825,10 +825,11 @@ select:focus, input:focus, button:focus {
 /* FILTER CARD */
 .filter-card {
     display: flex;
-    gap: 16px;
-    margin-bottom: 20px;
+    gap: 8px;
+    margin-bottom: 16px;
     flex-wrap: wrap;
     align-items: center;
+    padding: 14px;
 }
 
 .search-box {
@@ -837,10 +838,11 @@ select:focus, input:focus, button:focus {
     gap: 8px;
     background-color: var(--bg-main);
     border: 1px solid var(--border-color);
-    padding: 8px 12px;
+    padding: 7px 10px;
     border-radius: 8px;
-    flex: 1;
-    min-width: 200px;
+    flex: 1 1 220px;
+    min-width: 190px;
+    max-width: 280px;
 }
 
 .search-box input {
@@ -851,25 +853,34 @@ select:focus, input:focus, button:focus {
 .filter-select {
     background-color: var(--bg-main);
     border: 1px solid var(--border-color);
-    padding: 8px 12px;
+    padding: 7px 9px;
     border-radius: 8px;
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
-    min-width: 120px;
+    min-width: 104px;
+    height: 36px;
 }
 
 .date-filter-pair {
     display: grid;
-    grid-template-columns: minmax(132px, 0.9fr) repeat(2, minmax(132px, 1fr));
-    gap: 8px;
+    grid-template-columns: 104px 118px 118px;
+    gap: 6px;
+    flex: 0 0 auto;
 }
 
 .tx-account-filter {
-    min-width: 220px;
+    width: 160px;
+    min-width: 150px;
+}
+
+.tx-assignment-filter {
+    width: 166px;
+    min-width: 150px;
 }
 
 .tx-amount-filter {
-    min-width: 210px;
+    width: 156px;
+    min-width: 144px;
 }
 
 .analysis-grid {
@@ -1972,18 +1983,19 @@ select:focus, input:focus, button:focus {
 .custom-multiselect {
     position: relative;
     display: inline-block;
-    width: 180px;
+    width: 132px;
+    flex: 0 0 132px;
 }
 
 .multiselect-btn {
     width: 100%;
-    height: 38px;
-    padding: 0 12px;
+    height: 36px;
+    padding: 0 9px;
     border-radius: 8px;
     background-color: var(--bg-main);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     text-align: left;
     display: flex;
