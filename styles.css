@@ -668,6 +668,20 @@ select:focus, input:focus, button:focus {
     justify-content: center;
 }
 
+.metadata-table-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.metadata-rule-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+}
+
 .metadata-list {
     display: grid;
     gap: 8px;

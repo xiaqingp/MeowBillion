@@ -1605,72 +1605,48 @@ function renderTripManager() {
     const container = document.getElementById("trip-manager-container");
     if (!container) return;
     const trips = (state.trips || []).slice().sort((a, b) => String(b.year || "").localeCompare(String(a.year || "")) || String(a.name || "").localeCompare(String(b.name || "")));
-    const rows = trips.map(trip => `
-        <tr onclick="selectTripManagerItem('${escapeHtml(trip.id)}')">
-            <td>${escapeHtml(trip.year || "")}</td>
-            <td>${escapeHtml(trip.name || "")}</td>
-            <td>${escapeHtml(trip.destination || "")}</td>
-            <td>${escapeHtml(trip.status || "active")}</td>
+    const row = (trip = {}, key = "new") => `
+        <tr>
+            <td><input id="trip-year-${key}" class="table-input" type="number" value="${escapeHtml(trip.year || "")}" placeholder="Year"></td>
+            <td><input id="trip-name-${key}" class="table-input" value="${escapeHtml(trip.name || "")}" placeholder="Trip name"></td>
+            <td><input id="trip-destination-${key}" class="table-input" value="${escapeHtml(trip.destination || "")}" placeholder="Destination"></td>
+            <td>
+                <select id="trip-status-${key}" class="table-select">
+                    <option value="active" ${(trip.status || "active") === "active" ? "selected" : ""}>Active</option>
+                    <option value="archived" ${trip.status === "archived" ? "selected" : ""}>Archived</option>
+                </select>
+            </td>
+            <td><input id="trip-notes-${key}" class="table-input" value="${escapeHtml(trip.notes || "")}" placeholder="Notes"></td>
+            <td class="metadata-table-actions">
+                <button class="sync-btn" onclick="saveTripRow('${escapeHtml(trip.id || "")}', '${key}', event)">Save</button>
+                ${trip.id ? `<button class="pagination-btn" onclick="archiveTripRow('${escapeHtml(trip.id)}', event)">Archive</button>` : ""}
+            </td>
         </tr>
-    `).join("");
+    `;
     container.innerHTML = `
-        <div class="metadata-form">
-            <select id="trip-manager-select" class="table-select" onchange="fillTripManagerForm()">
-                <option value="">New trip</option>
-                ${trips.map(trip => `<option value="${escapeHtml(trip.id)}">${escapeHtml(`${trip.year || ""} ${trip.name}`.trim())}${trip.status === "archived" ? " (archived)" : ""}</option>`).join("")}
-            </select>
-            <input id="trip-name-input" class="table-input" placeholder="Trip name">
-            <input id="trip-year-input" class="table-input" type="number" placeholder="Year">
-            <input id="trip-destination-input" class="table-input" placeholder="Destination">
-            <select id="trip-status-input" class="table-select">
-                <option value="active">Active</option>
-                <option value="archived">Archived</option>
-            </select>
-            <input id="trip-notes-input" class="table-input metadata-wide-input" placeholder="Notes">
-            <button class="sync-btn metadata-action-btn" onclick="saveTripManagerForm(event)">Save trip</button>
-            <button class="pagination-btn metadata-action-btn" onclick="archiveTripManagerSelection(event)">Archive</button>
-        </div>
-        <div class="analysis-table-wrap mt-4">
+        <div class="analysis-table-wrap">
             <table class="analysis-table">
-                <thead><tr><th>Year</th><th>Trip</th><th>Destination</th><th>Status</th></tr></thead>
-                <tbody>${rows || `<tr><td colspan="4" class="allocation-empty">No trips yet.</td></tr>`}</tbody>
+                <thead><tr><th>Year</th><th>Trip</th><th>Destination</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
+                <tbody>${row({}, "new")}${trips.map(trip => row(trip, trip.id)).join("")}</tbody>
             </table>
         </div>
     `;
 }
 
-export function selectTripManagerItem(id) {
-    const select = document.getElementById("trip-manager-select");
-    if (select) {
-        select.value = id;
-        fillTripManagerForm();
-    }
-}
+export function selectTripManagerItem() {}
 
-export function fillTripManagerForm() {
-    const id = document.getElementById("trip-manager-select")?.value || "";
-    const trip = (state.trips || []).find(item => item.id === id) || {};
-    const set = (field, value) => {
-        const el = document.getElementById(field);
-        if (el) el.value = value ?? "";
-    };
-    set("trip-name-input", trip.name || "");
-    set("trip-year-input", trip.year || "");
-    set("trip-destination-input", trip.destination || "");
-    set("trip-status-input", trip.status || "active");
-    set("trip-notes-input", trip.notes || "");
-}
+export function fillTripManagerForm() {}
 
-export async function saveTripManagerForm(event) {
+export async function saveTripRow(id, key, event) {
     if (event) event.preventDefault();
-    const id = document.getElementById("trip-manager-select")?.value || "";
     const payload = {
-        name: document.getElementById("trip-name-input")?.value || "",
-        year: document.getElementById("trip-year-input")?.value || "",
-        destination: document.getElementById("trip-destination-input")?.value || "",
-        status: document.getElementById("trip-status-input")?.value || "active",
-        notes: document.getElementById("trip-notes-input")?.value || ""
+        name: document.getElementById(`trip-name-${key}`)?.value || "",
+        year: document.getElementById(`trip-year-${key}`)?.value || "",
+        destination: document.getElementById(`trip-destination-${key}`)?.value || "",
+        status: document.getElementById(`trip-status-${key}`)?.value || "active",
+        notes: document.getElementById(`trip-notes-${key}`)?.value || ""
     };
+    if (!payload.name.trim()) return alert("Trip name is required.");
     const res = id ? await updateTripApi(id, payload) : await createTripApi(payload);
     if (res.error) return alert(res.error);
     await refreshContextMetadata();
@@ -1679,9 +1655,12 @@ export async function saveTripManagerForm(event) {
     renderTransactionsList();
 }
 
-export async function archiveTripManagerSelection(event) {
+export async function saveTripManagerForm(event) {
+    return saveTripRow("", "new", event);
+}
+
+export async function archiveTripRow(id, event) {
     if (event) event.preventDefault();
-    const id = document.getElementById("trip-manager-select")?.value || "";
     if (!id) return;
     const res = await deleteTripApi(id);
     if (res.error) return alert(res.error);
@@ -1691,80 +1670,58 @@ export async function archiveTripManagerSelection(event) {
     renderTransactionsList();
 }
 
+export async function archiveTripManagerSelection(event) {
+    if (event) event.preventDefault();
+}
+
 function renderRentalManager() {
     const container = document.getElementById("rental-manager-container");
     if (!container) return;
     const properties = (state.rentalProperties || []).slice().sort((a, b) => Number(b.active || 0) - Number(a.active || 0) || String(a.name || "").localeCompare(String(b.name || "")));
-    const rows = properties.map(prop => `
-        <tr onclick="selectRentalManagerItem('${escapeHtml(prop.id)}')">
-            <td>${escapeHtml(prop.name || "")}</td>
-            <td>${escapeHtml(prop.city || "")}</td>
-            <td>${escapeHtml(prop.state || "")}</td>
-            <td>${Number(prop.active) === 0 ? "Inactive" : "Active"}</td>
+    const row = (prop = {}, key = "new") => `
+        <tr>
+            <td><input id="rental-name-${key}" class="table-input" value="${escapeHtml(prop.name || "")}" placeholder="Property"></td>
+            <td><input id="rental-address-${key}" class="table-input" value="${escapeHtml(prop.address || "")}" placeholder="Address"></td>
+            <td><input id="rental-city-${key}" class="table-input" value="${escapeHtml(prop.city || "")}" placeholder="City"></td>
+            <td><input id="rental-state-${key}" class="table-input" value="${escapeHtml(prop.state || "")}" placeholder="State"></td>
+            <td>
+                <select id="rental-active-${key}" class="table-select">
+                    <option value="1" ${Number(prop.active ?? 1) === 1 ? "selected" : ""}>Active</option>
+                    <option value="0" ${Number(prop.active ?? 1) === 0 ? "selected" : ""}>Inactive</option>
+                </select>
+            </td>
+            <td><input id="rental-notes-${key}" class="table-input" value="${escapeHtml(prop.notes || "")}" placeholder="Notes"></td>
+            <td class="metadata-table-actions">
+                <button class="sync-btn" onclick="saveRentalRow('${escapeHtml(prop.id || "")}', '${key}', event)">Save</button>
+                ${prop.id ? `<button class="pagination-btn" onclick="archiveRentalRow('${escapeHtml(prop.id)}', event)">Archive</button>` : ""}
+            </td>
         </tr>
-    `).join("");
+    `;
     container.innerHTML = `
-        <div class="metadata-form">
-            <select id="rental-manager-select" class="table-select" onchange="fillRentalManagerForm(); renderRentalRuleManager();">
-                <option value="">New property</option>
-                ${properties.map(prop => `<option value="${escapeHtml(prop.id)}">${escapeHtml(prop.name)}${Number(prop.active) === 0 ? " (inactive)" : ""}</option>`).join("")}
-            </select>
-            <input id="rental-name-input" class="table-input" placeholder="Property name">
-            <input id="rental-address-input" class="table-input" placeholder="Address">
-            <input id="rental-city-input" class="table-input" placeholder="City">
-            <input id="rental-state-input" class="table-input" placeholder="State">
-            <select id="rental-active-input" class="table-select">
-                <option value="1">Active</option>
-                <option value="0">Inactive</option>
-            </select>
-            <input id="rental-notes-input" class="table-input metadata-wide-input" placeholder="Notes">
-            <button class="sync-btn metadata-action-btn" onclick="saveRentalManagerForm(event)">Save property</button>
-            <button class="pagination-btn metadata-action-btn" onclick="archiveRentalManagerSelection(event)">Archive</button>
-        </div>
-        <div class="analysis-table-wrap mt-4">
+        <div class="analysis-table-wrap">
             <table class="analysis-table">
-                <thead><tr><th>Property</th><th>City</th><th>State</th><th>Status</th></tr></thead>
-                <tbody>${rows || `<tr><td colspan="4" class="allocation-empty">No rental properties yet.</td></tr>`}</tbody>
+                <thead><tr><th>Property</th><th>Address</th><th>City</th><th>State</th><th>Status</th><th>Notes</th><th>Actions</th></tr></thead>
+                <tbody>${row({}, "new")}${properties.map(prop => row(prop, prop.id)).join("")}</tbody>
             </table>
         </div>
     `;
 }
 
-export function selectRentalManagerItem(id) {
-    const select = document.getElementById("rental-manager-select");
-    if (select) {
-        select.value = id;
-        fillRentalManagerForm();
-        renderRentalRuleManager();
-    }
-}
+export function selectRentalManagerItem() {}
 
-export function fillRentalManagerForm() {
-    const id = document.getElementById("rental-manager-select")?.value || "";
-    const prop = (state.rentalProperties || []).find(item => item.id === id) || {};
-    const set = (field, value) => {
-        const el = document.getElementById(field);
-        if (el) el.value = value ?? "";
-    };
-    set("rental-name-input", prop.name || "");
-    set("rental-address-input", prop.address || "");
-    set("rental-city-input", prop.city || "");
-    set("rental-state-input", prop.state || "");
-    set("rental-active-input", prop.active ?? 1);
-    set("rental-notes-input", prop.notes || "");
-}
+export function fillRentalManagerForm() {}
 
-export async function saveRentalManagerForm(event) {
+export async function saveRentalRow(id, key, event) {
     if (event) event.preventDefault();
-    const id = document.getElementById("rental-manager-select")?.value || "";
     const payload = {
-        name: document.getElementById("rental-name-input")?.value || "",
-        address: document.getElementById("rental-address-input")?.value || "",
-        city: document.getElementById("rental-city-input")?.value || "",
-        state: document.getElementById("rental-state-input")?.value || "",
-        active: Number(document.getElementById("rental-active-input")?.value || 1),
-        notes: document.getElementById("rental-notes-input")?.value || ""
+        name: document.getElementById(`rental-name-${key}`)?.value || "",
+        address: document.getElementById(`rental-address-${key}`)?.value || "",
+        city: document.getElementById(`rental-city-${key}`)?.value || "",
+        state: document.getElementById(`rental-state-${key}`)?.value || "",
+        active: Number(document.getElementById(`rental-active-${key}`)?.value || 1),
+        notes: document.getElementById(`rental-notes-${key}`)?.value || ""
     };
+    if (!payload.name.trim()) return alert("Property name is required.");
     const res = id ? await updateRentalPropertyApi(id, payload) : await createRentalPropertyApi(payload);
     if (res.error) return alert(res.error);
     await refreshContextMetadata();
@@ -1774,9 +1731,12 @@ export async function saveRentalManagerForm(event) {
     renderTransactionsList();
 }
 
-export async function archiveRentalManagerSelection(event) {
+export async function saveRentalManagerForm(event) {
+    return saveRentalRow("", "new", event);
+}
+
+export async function archiveRentalRow(id, event) {
     if (event) event.preventDefault();
-    const id = document.getElementById("rental-manager-select")?.value || "";
     if (!id) return;
     const res = await deleteRentalPropertyApi(id);
     if (res.error) return alert(res.error);
@@ -1787,95 +1747,94 @@ export async function archiveRentalManagerSelection(event) {
     renderTransactionsList();
 }
 
+export async function archiveRentalManagerSelection(event) {
+    if (event) event.preventDefault();
+}
+
 export async function renderRentalRuleManager() {
     const container = document.getElementById("rental-rule-manager-container");
     if (!container) return;
-    const propertyId = document.getElementById("rental-manager-select")?.value || (state.rentalProperties || [])[0]?.id || "";
+    const properties = state.rentalProperties || [];
+    const previousPropertyId = container.dataset.propertyId || "";
+    const propertyId = document.getElementById("rental-rule-property-select")?.value || previousPropertyId || properties[0]?.id || "";
+    container.dataset.propertyId = propertyId;
     if (!propertyId) {
         container.innerHTML = `<div class="allocation-empty">Create or select a rental property first.</div>`;
         return;
     }
     const rules = await safeFetch(fetchRentalPropertyRulesApi(propertyId), []);
+    const row = (rule = {}, key = "new") => `
+        <tr>
+            <td><input id="rental-rule-name-${key}" class="table-input" value="${escapeHtml(rule.name || "")}" placeholder="Rule"></td>
+            <td><input id="rental-rule-merchant-${key}" class="table-input" value="${escapeHtml(rule.merchant_contains || "")}" placeholder="Merchant"></td>
+            <td><input id="rental-rule-account-${key}" class="table-input" value="${escapeHtml(rule.account_name_contains || "")}" placeholder="Account"></td>
+            <td>
+                <select id="rental-rule-direction-${key}" class="table-select">
+                    <option value="" ${!rule.direction ? "selected" : ""}>Any</option>
+                    <option value="outflow" ${rule.direction === "outflow" ? "selected" : ""}>Outflow</option>
+                    <option value="inflow" ${rule.direction === "inflow" ? "selected" : ""}>Inflow</option>
+                </select>
+            </td>
+            <td><input id="rental-rule-min-${key}" class="table-input" type="number" step="0.01" value="${escapeHtml(rule.amount_min ?? "")}" placeholder="Min"></td>
+            <td><input id="rental-rule-max-${key}" class="table-input" type="number" step="0.01" value="${escapeHtml(rule.amount_max ?? "")}" placeholder="Max"></td>
+            <td><input id="rental-rule-subtype-${key}" class="table-input" value="${escapeHtml(rule.default_subtype || "")}" placeholder="Subtype"></td>
+            <td>
+                <select id="rental-rule-enabled-${key}" class="table-select">
+                    <option value="1" ${Number(rule.enabled ?? 1) === 1 ? "selected" : ""}>Enabled</option>
+                    <option value="0" ${Number(rule.enabled ?? 1) === 0 ? "selected" : ""}>Disabled</option>
+                </select>
+            </td>
+            <td class="metadata-table-actions">
+                <button class="sync-btn" onclick="saveRentalRuleRow('${escapeHtml(rule.id || "")}', '${key}', event)">Save</button>
+                ${rule.id ? `<button class="pagination-btn" onclick="deleteRentalRule('${escapeHtml(rule.id)}', event)">Delete</button>` : ""}
+            </td>
+        </tr>
+    `;
     container.innerHTML = `
-        <div class="metadata-form">
-            <input id="rental-rule-id-input" type="hidden">
-            <input id="rental-rule-name-input" class="table-input" placeholder="Rule name">
-            <input id="rental-rule-merchant-input" class="table-input" placeholder="Merchant contains">
-            <input id="rental-rule-account-input" class="table-input" placeholder="Account contains">
-            <select id="rental-rule-direction-input" class="table-select">
-                <option value="">Any direction</option>
-                <option value="outflow">Outflow</option>
-                <option value="inflow">Inflow</option>
+        <div class="metadata-rule-toolbar">
+            <select id="rental-rule-property-select" class="table-select" onchange="renderRentalRuleManager()">
+                ${properties.map(prop => `<option value="${escapeHtml(prop.id)}" ${prop.id === propertyId ? "selected" : ""}>${escapeHtml(prop.name || "Property")}</option>`).join("")}
             </select>
-            <input id="rental-rule-min-input" class="table-input" type="number" step="0.01" placeholder="Min amount">
-            <input id="rental-rule-max-input" class="table-input" type="number" step="0.01" placeholder="Max amount">
-            <input id="rental-rule-subtype-input" class="table-input" placeholder="Default subtype">
-            <select id="rental-rule-enabled-input" class="table-select">
-                <option value="1">Enabled</option>
-                <option value="0">Disabled</option>
-            </select>
-            <button class="sync-btn metadata-action-btn" onclick="saveRentalRuleForm(event)">Save rule</button>
-            <button class="pagination-btn metadata-action-btn" onclick="clearRentalRuleForm(event)">New rule</button>
-            <button class="pagination-btn metadata-action-btn" onclick="applyRentalRules(event)">Apply to unreviewed</button>
+            <button class="pagination-btn" onclick="applyRentalRules(event)">Apply to unreviewed</button>
         </div>
-        <div class="metadata-list">
-            ${rules.map(rule => `
-                <div class="metadata-list-row" onclick="fillRentalRuleForm('${escapeHtml(rule.id)}')">
-                    <span>${escapeHtml(rule.name || rule.merchant_contains || "Rule")}</span>
-                    <small>${escapeHtml([rule.merchant_contains, rule.account_name_contains, rule.direction, rule.default_subtype].filter(Boolean).join(" / "))}</small>
-                    <span class="metadata-row-actions">
-                        <button class="pagination-btn" onclick="deleteRentalRule('${escapeHtml(rule.id)}', event)">Delete</button>
-                    </span>
-                </div>
-            `).join("") || `<div class="allocation-empty">No rules yet.</div>`}
+        <div class="analysis-table-wrap mt-4">
+            <table class="analysis-table">
+                <thead><tr><th>Name</th><th>Merchant</th><th>Account</th><th>Direction</th><th>Min</th><th>Max</th><th>Subtype</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${row({}, "new")}${rules.map(rule => row(rule, rule.id)).join("")}</tbody>
+            </table>
         </div>
     `;
     container.dataset.rules = JSON.stringify(rules);
 }
 
-export function fillRentalRuleForm(ruleId) {
-    const container = document.getElementById("rental-rule-manager-container");
-    const rules = JSON.parse(container?.dataset.rules || "[]");
-    const rule = rules.find(item => item.id === ruleId) || {};
-    const set = (field, value) => {
-        const el = document.getElementById(field);
-        if (el) el.value = value ?? "";
-    };
-    set("rental-rule-id-input", rule.id || "");
-    set("rental-rule-name-input", rule.name || "");
-    set("rental-rule-merchant-input", rule.merchant_contains || "");
-    set("rental-rule-account-input", rule.account_name_contains || "");
-    set("rental-rule-direction-input", rule.direction || "");
-    set("rental-rule-min-input", rule.amount_min ?? "");
-    set("rental-rule-max-input", rule.amount_max ?? "");
-    set("rental-rule-subtype-input", rule.default_subtype || "");
-    set("rental-rule-enabled-input", rule.enabled ?? 1);
-}
+export function fillRentalRuleForm() {}
 
 export function clearRentalRuleForm(event) {
     if (event) event.preventDefault();
-    fillRentalRuleForm("");
 }
 
-export async function saveRentalRuleForm(event) {
+export async function saveRentalRuleRow(ruleId, key, event) {
     if (event) event.preventDefault();
-    const propertyId = document.getElementById("rental-manager-select")?.value || (state.rentalProperties || [])[0]?.id || "";
-    const ruleId = document.getElementById("rental-rule-id-input")?.value || "";
+    const propertyId = document.getElementById("rental-rule-property-select")?.value || document.getElementById("rental-rule-manager-container")?.dataset.propertyId || "";
     if (!propertyId) return alert("Select a rental property first.");
     const payload = {
         rental_property_id: propertyId,
-        name: document.getElementById("rental-rule-name-input")?.value || "",
-        merchant_contains: document.getElementById("rental-rule-merchant-input")?.value || "",
-        account_name_contains: document.getElementById("rental-rule-account-input")?.value || "",
-        direction: document.getElementById("rental-rule-direction-input")?.value || "",
-        amount_min: document.getElementById("rental-rule-min-input")?.value || "",
-        amount_max: document.getElementById("rental-rule-max-input")?.value || "",
-        default_subtype: document.getElementById("rental-rule-subtype-input")?.value || "",
-        enabled: Number(document.getElementById("rental-rule-enabled-input")?.value || 1)
+        name: document.getElementById(`rental-rule-name-${key}`)?.value || "",
+        merchant_contains: document.getElementById(`rental-rule-merchant-${key}`)?.value || "",
+        account_name_contains: document.getElementById(`rental-rule-account-${key}`)?.value || "",
+        direction: document.getElementById(`rental-rule-direction-${key}`)?.value || "",
+        amount_min: document.getElementById(`rental-rule-min-${key}`)?.value || "",
+        amount_max: document.getElementById(`rental-rule-max-${key}`)?.value || "",
+        default_subtype: document.getElementById(`rental-rule-subtype-${key}`)?.value || "",
+        enabled: Number(document.getElementById(`rental-rule-enabled-${key}`)?.value || 1)
     };
     const res = ruleId ? await updateRentalPropertyRuleApi(ruleId, payload) : await createRentalPropertyRuleApi(payload);
     if (res.error) return alert(res.error);
     await renderRentalRuleManager();
+}
+
+export async function saveRentalRuleForm(event) {
+    return saveRentalRuleRow("", "new", event);
 }
 
 export async function deleteRentalRule(ruleId, event) {
@@ -1887,9 +1846,8 @@ export async function deleteRentalRule(ruleId, event) {
 
 export async function applyRentalRules(event) {
     if (event) event.preventDefault();
-    const propertyId = document.getElementById("rental-manager-select")?.value || "";
-    const ruleId = document.getElementById("rental-rule-id-input")?.value || "";
-    const res = await applyRentalPropertyRulesApi({ rental_property_id: propertyId, rule_id: ruleId });
+    const propertyId = document.getElementById("rental-rule-property-select")?.value || document.getElementById("rental-rule-manager-container")?.dataset.propertyId || "";
+    const res = await applyRentalPropertyRulesApi({ rental_property_id: propertyId });
     if (res.error) return alert(res.error);
     alert(`Updated ${res.updated_count || 0} transaction(s).`);
     await loadData({ preserveScroll: true });
@@ -2552,15 +2510,20 @@ window.saveAllocationOverride = saveAllocationOverride;
 window.clearAllocationOverride = clearAllocationOverride;
 window.fillTripManagerForm = fillTripManagerForm;
 window.selectTripManagerItem = selectTripManagerItem;
+window.saveTripRow = saveTripRow;
+window.archiveTripRow = archiveTripRow;
 window.saveTripManagerForm = saveTripManagerForm;
 window.archiveTripManagerSelection = archiveTripManagerSelection;
 window.fillRentalManagerForm = fillRentalManagerForm;
 window.selectRentalManagerItem = selectRentalManagerItem;
+window.saveRentalRow = saveRentalRow;
+window.archiveRentalRow = archiveRentalRow;
 window.saveRentalManagerForm = saveRentalManagerForm;
 window.archiveRentalManagerSelection = archiveRentalManagerSelection;
 window.renderRentalRuleManager = renderRentalRuleManager;
 window.fillRentalRuleForm = fillRentalRuleForm;
 window.clearRentalRuleForm = clearRentalRuleForm;
+window.saveRentalRuleRow = saveRentalRuleRow;
 window.saveRentalRuleForm = saveRentalRuleForm;
 window.deleteRentalRule = deleteRentalRule;
 window.applyRentalRules = applyRentalRules;
