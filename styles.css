@@ -661,6 +661,30 @@ select:focus, input:focus, button:focus {
     font-size: 13px;
 }
 
+.transaction-table {
+    min-width: 1220px;
+    table-layout: fixed;
+}
+
+.transaction-table th,
+.transaction-table td {
+    overflow: hidden;
+}
+
+.transaction-table .table-input,
+.transaction-table .table-select {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.transaction-table .merchant-cell {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .data-table th {
     color: var(--text-secondary);
     font-weight: 600;
