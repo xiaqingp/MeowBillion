@@ -633,9 +633,13 @@ def travel_analysis():
                        a.institution_name AS institution_name,
                        t.subtype,
                        t.note,
+                       t.trip_id,
+                       tr.name AS trip_name,
+                       tr.year AS trip_year,
                        COALESCE(t.ipay, -t.amount) AS ipay
                 FROM transactions t
                 LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+                LEFT JOIN trips tr ON t.trip_id = tr.id AND tr.user_id = t.user_id
                 WHERE t.user_id = ?
                   AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
@@ -649,18 +653,19 @@ def travel_analysis():
         for r in rows:
             amount = abs(float(r["ipay"] or r["amount"] or 0.0))
             subtype = (transaction_field(r, travel_rules.get("category_source"), "Unclassified") or "Unclassified").strip() or "Unclassified"
-            trip_value = transaction_field(r, travel_rules.get("trip_source"), "")
-            parsed = parse_trip_name(
-                trip_value,
-                bool(travel_rules.get("year_prefix", True)),
-                travel_rules.get("fallback_year") or "Note"
-            )
-            key = (parsed["year"], parsed["trip"])
+            tx_year = (r["date"] or "")[:4]
+            trip_year = str(r["trip_year"] or tx_year or "Unknown")
+            sort_year = int(trip_year) if trip_year.isdigit() else -1
+            trip_name = (r["trip_name"] or "").strip()
+            if not trip_name:
+                trip_name = f"Unassigned Travel {trip_year}"
+            key = (r["trip_id"] or "", trip_year, trip_name)
             if key not in trips:
                 trips[key] = {
-                    "year": parsed["year"],
-                    "sort_year": parsed["sort_year"],
-                    "trip": parsed["trip"],
+                    "trip_id": r["trip_id"] or "",
+                    "year": trip_year,
+                    "sort_year": sort_year,
+                    "trip": trip_name,
                     "total": 0.0,
                     "count": 0,
                     "first_date": r["date"],
@@ -720,6 +725,7 @@ def travel_analysis():
                 year_lookup[year] = year_group
                 years.append(year_group)
             year_lookup[year]["trips"].append({
+                "trip_id": trip["trip_id"],
                 "year": trip["year"],
                 "trip": trip["trip"],
                 "total": trip["total"],
@@ -763,6 +769,8 @@ def rental_analysis():
                        a.institution_name AS institution_name,
                        t.subtype,
                        t.note,
+                       t.rental_property_id,
+                       rp.name AS property_name,
                        COALESCE(
                            t.ipay,
                            CASE
@@ -772,6 +780,7 @@ def rental_analysis():
                        ) AS signed_amount
                 FROM transactions t
                 LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+                LEFT JOIN rental_properties rp ON t.rental_property_id = rp.id AND rp.user_id = t.user_id
                 WHERE t.user_id = ?
                   AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
@@ -783,11 +792,7 @@ def rental_analysis():
         properties = {}
         category_totals = {}
         for r in rows:
-            property_name = (
-                transaction_field(r, rental_rules.get("property_source"), rental_rules.get("fallback_property") or "Unassigned")
-                or rental_rules.get("fallback_property")
-                or "Unassigned"
-            ).strip() or "Unassigned"
+            property_name = (r["property_name"] or "").strip() or "Unassigned Rental Property"
             category = (
                 transaction_field(r, rental_rules.get("category_source"), rental_rules.get("fallback_category") or "Unclassified")
                 or rental_rules.get("fallback_category")
@@ -796,9 +801,11 @@ def rental_analysis():
             signed_amount = float(r["signed_amount"] or 0.0)
             month = (r["date"] or "")[:7]
             year = (r["date"] or "")[:4]
+            property_key = r["rental_property_id"] or f"unassigned:{property_name}"
 
-            if property_name not in properties:
-                properties[property_name] = {
+            if property_key not in properties:
+                properties[property_key] = {
+                    "property_id": r["rental_property_id"] or "",
                     "property": property_name,
                     "total": 0.0,
                     "income": 0.0,
@@ -812,7 +819,7 @@ def rental_analysis():
                     "transactions": []
                 }
 
-            prop = properties[property_name]
+            prop = properties[property_key]
             prop["total"] += signed_amount
             prop["income"] += max(signed_amount, 0.0)
             prop["expense"] += max(-signed_amount, 0.0)
