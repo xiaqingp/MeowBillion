@@ -27,6 +27,8 @@ def make_conn():
             mown REAL,
             note TEXT,
             reviewed INTEGER,
+            trip_id TEXT,
+            rental_property_id TEXT,
             imported_from_legacy INTEGER,
             legacy_matched INTEGER
         )
@@ -43,7 +45,7 @@ class PendingDuplicateTests(unittest.TestCase):
             INSERT INTO transactions VALUES (
                 'pending_1', '2026-07-01', '2026-07-01', 'T T Supermarket',
                 82.91, 'outflow', 'account_1', 1, 'Groceries', '',
-                'n', 1.0, -82.91, 0.0, 0.0, '', 1, 0, 0
+                'n', 1.0, -82.91, 0.0, 0.0, '', 1, NULL, NULL, 0, 0
             )
             """
         )

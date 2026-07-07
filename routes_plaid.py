@@ -20,6 +20,7 @@ from auth import current_user_id
 from classifier import constrain_category_to_config, infer_transaction_classification_from_history, normalize_merchant_key, predict_custom_type, predict_transaction_classification
 from routes_config import load_categories_config_from_db
 from routes_transactions import fetch_paginated_transactions
+from routes_metadata import apply_rental_property_rules_to_transaction
 
 plaid_bp = Blueprint('plaid', __name__)
 
@@ -137,6 +138,7 @@ def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_i
     cursor.execute(
         """
         SELECT transaction_id, date, authorized_date, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed,
+               trip_id, rental_property_id,
                imported_from_legacy, legacy_matched
         FROM transactions
         WHERE transaction_id != ?
@@ -904,13 +906,25 @@ def perform_sync(user_id=None):
                         cursor.execute(
                             """
                             UPDATE transactions 
-                            SET date = ?, authorized_date = ?, pending = ?, categories = ?, location = ?, payment_channel = ?, account_name = ?
+                            SET date = ?,
+                                authorized_date = ?,
+                                merchant = ?,
+                                amount = ?,
+                                direction = ?,
+                                pending = ?,
+                                categories = ?,
+                                location = ?,
+                                payment_channel = ?,
+                                account_name = ?
                             WHERE transaction_id = ?
                               AND user_id = ?
                             """,
                             (
                                 date_str,
                                 auth_date_str,
+                                merchant,
+                                abs_amount,
+                                direction,
                                 pending,
                                 categories_json,
                                 location_json,
@@ -920,17 +934,43 @@ def perform_sync(user_id=None):
                                 user_id
                             )
                         )
+                        if int(existing['reviewed'] or 0) == 0:
+                            cursor.execute(
+                                """
+                                UPDATE transactions
+                                SET type = ?,
+                                    subtype = ?,
+                                    prediction_source = ?,
+                                    prediction_confidence = ?,
+                                    prediction_reason = ?
+                                WHERE transaction_id = ?
+                                  AND user_id = ?
+                                  AND reviewed = 0
+                                """,
+                                (
+                                    custom_type,
+                                    custom_subtype,
+                                    prediction.get("source", ""),
+                                    prediction.get("confidence", 0.0),
+                                    prediction.get("reason", ""),
+                                    tx_id,
+                                    user_id
+                                )
+                            )
+                            apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
                     else:
                         reviewed_val = int(pending_duplicate['reviewed'] or 0) if pending_duplicate else 0
                         is_b_val = pending_duplicate['is_b'] if pending_duplicate else 'n'
                         ratio_val = float(pending_duplicate['ratio'] or 1.0) if pending_duplicate else 1.0
                         mown_val = float(pending_duplicate['mown'] or 0.0) if pending_duplicate else 0.0
                         note_val = pending_duplicate['note'] if pending_duplicate else ''
+                        trip_id_val = pending_duplicate['trip_id'] if pending_duplicate else None
+                        rental_property_id_val = pending_duplicate['rental_property_id'] if pending_duplicate else None
                         cursor.execute(
                             """
                             INSERT INTO transactions 
-                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, reviewed, prediction_source, prediction_confidence, prediction_reason, user_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending, categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, reviewed, prediction_source, prediction_confidence, prediction_reason, user_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 tx_id, 
@@ -952,6 +992,8 @@ def perform_sync(user_id=None):
                                 mown_val,
                                 note_val,
                                 custom_subtype,
+                                trip_id_val,
+                                rental_property_id_val,
                                 reviewed_val,
                                 prediction.get("source", ""),
                                 prediction.get("confidence", 0.0),
@@ -965,6 +1007,7 @@ def perform_sync(user_id=None):
                                 (pending_duplicate['transaction_id'], user_id)
                             )
                         if reviewed_val == 0:
+                            apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
                             detect_and_apply_transfer_type(
                                 cursor,
                                 tx_id,
