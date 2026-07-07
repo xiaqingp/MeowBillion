@@ -86,7 +86,7 @@ export async function fetchRentalAnalysisApi() {
     return await res.json();
 }
 
-export async function updateTransactionReview(txId, type, isB, ratio, mown, note, subtype) {
+export async function updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId = "", rentalPropertyId = "") {
     const res = await fetch("/api/update_transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -97,9 +97,82 @@ export async function updateTransactionReview(txId, type, isB, ratio, mown, note
             ratio,
             mown,
             note,
-            subtype
+            subtype,
+            trip_id: tripId,
+            rental_property_id: rentalPropertyId
         })
     });
+    return await res.json();
+}
+
+export async function updateTransactionAssignmentApi(txId, tripId = "", rentalPropertyId = "") {
+    const res = await fetch("/api/update_transaction_assignment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            transaction_id: txId,
+            trip_id: tripId,
+            rental_property_id: rentalPropertyId
+        })
+    });
+    return await res.json();
+}
+
+export async function fetchTripsApi() {
+    const res = await fetch("/api/trips");
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
+export async function createTripApi(data) {
+    const res = await fetch("/api/trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function updateTripApi(id, data) {
+    const res = await fetch(`/api/trips/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function deleteTripApi(id) {
+    const res = await fetch(`/api/trips/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return await res.json();
+}
+
+export async function fetchRentalPropertiesApi() {
+    const res = await fetch("/api/rental_properties");
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
+export async function createRentalPropertyApi(data) {
+    const res = await fetch("/api/rental_properties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function updateRentalPropertyApi(id, data) {
+    const res = await fetch(`/api/rental_properties/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    });
+    return await res.json();
+}
+
+export async function deleteRentalPropertyApi(id) {
+    const res = await fetch(`/api/rental_properties/${encodeURIComponent(id)}`, { method: "DELETE" });
     return await res.json();
 }
 

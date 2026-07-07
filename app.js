@@ -22,7 +22,9 @@ import {
     signupApi,
     logoutApi,
     fetchPlaidCredentialsApi,
-    savePlaidCredentialsApi
+    savePlaidCredentialsApi,
+    fetchTripsApi,
+    fetchRentalPropertiesApi
 } from './modules/api.js';
 import { 
     loadAccounts, 
@@ -59,7 +61,8 @@ import {
     submitTransactionReview, 
     toggleTransactionConfirm, 
     deleteTransaction, 
-    onRowCategoryChange 
+    onRowCategoryChange,
+    onAssignmentChange
 } from './modules/transaction-renderer.js';
 import { 
     formatCurrency, 
@@ -149,7 +152,7 @@ async function initApp() {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                <td colspan="9" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
                     <div>Loading transactions...</div>
                 </td>
@@ -160,12 +163,14 @@ async function initApp() {
 
     try {
         // 2. Fetch all configuration and transactions data in parallel to avoid sequential round-trips
-        const [config, txData, accounts, plaidStatus, connections] = await Promise.all([
+        const [config, txData, accounts, plaidStatus, connections, trips, rentalProperties] = await Promise.all([
             safeFetch(fetchCategoriesConfig(), { categories: [], rules: {} }),
             safeFetch(fetchTransactions(state.currentPage, state.limit, state.currentFilters), { transactions: [], total_pages: 1, page: 1, total_count: 0 }),
             safeFetch(fetchAccountsApi(), []),
             safeFetch(fetchCredentialsStatus(), { has_credentials: false, env: 'N/A', last_sync_time: 'N/A' }),
-            safeFetch(fetchConnectionsApi(), [])
+            safeFetch(fetchConnectionsApi(), []),
+            safeFetch(fetchTripsApi(), []),
+            safeFetch(fetchRentalPropertiesApi(), [])
         ]);
 
         // 3. Save loaded states
@@ -175,6 +180,8 @@ async function initApp() {
         state.currentPage = txData.page || 1;
         state.totalCount = txData.total_count || 0;
         state.accounts = accounts || [];
+        state.trips = trips || [];
+        state.rentalProperties = rentalProperties || [];
 
         // 4. Update dropdown filter categories
         await updateCategoryFilterOptions();
@@ -298,7 +305,7 @@ export async function loadData(options = {}) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                <td colspan="9" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
                     <div>Loading transactions...</div>
                 </td>
@@ -309,11 +316,13 @@ export async function loadData(options = {}) {
     
     try {
         // Fetch paginated transactions, accounts, Plaid status, and active connections concurrently
-        const [txData, accounts, plaidStatus, connections] = await Promise.all([
+        const [txData, accounts, plaidStatus, connections, trips, rentalProperties] = await Promise.all([
             safeFetch(fetchTransactions(state.currentPage, state.limit, state.currentFilters), { transactions: [], total_pages: 1, page: 1, total_count: 0 }),
             safeFetch(fetchAccountsApi(), []),
             safeFetch(fetchCredentialsStatus(), { has_credentials: false, env: 'N/A', last_sync_time: 'N/A' }),
-            safeFetch(fetchConnectionsApi(), [])
+            safeFetch(fetchConnectionsApi(), []),
+            safeFetch(fetchTripsApi(), []),
+            safeFetch(fetchRentalPropertiesApi(), [])
         ]);
         
         state.transactions = txData.transactions || [];
@@ -321,6 +330,8 @@ export async function loadData(options = {}) {
         state.currentPage = txData.page || 1;
         state.totalCount = txData.total_count || 0;
         state.accounts = accounts;
+        state.trips = trips || [];
+        state.rentalProperties = rentalProperties || [];
         
         renderDashboard(accounts);
         initializeNetWorthRangeControl();
@@ -2207,6 +2218,7 @@ window.onConfigRuleCategoryChange = onConfigRuleCategoryChange;
 window.addNewSubcategory = addNewSubcategory;
 window.deleteSubcategory = deleteSubcategory;
 window.onRowCategoryChange = onRowCategoryChange;
+window.onAssignmentChange = onAssignmentChange;
 window.onCreateCategoryChange = onCreateCategoryChange;
 window.saveCategoriesConfig = saveCategoriesConfig;
 window.renderBalanceTrendChart = renderBalanceTrendChart;

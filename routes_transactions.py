@@ -227,6 +227,11 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             t.prediction_source,
             t.prediction_confidence,
             t.prediction_reason,
+            t.trip_id,
+            tr.name AS trip_name,
+            tr.year AS trip_year,
+            t.rental_property_id,
+            rp.name AS rental_property_name,
             t.account_name AS account_name_raw,
             a.name AS account_name,
             a.type AS account_type,
@@ -234,6 +239,8 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             a.institution_name AS institution_name
         FROM transactions t
         LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
+        LEFT JOIN trips tr ON t.trip_id = tr.id AND tr.user_id = t.user_id
+        LEFT JOIN rental_properties rp ON t.rental_property_id = rp.id AND rp.user_id = t.user_id
         {where_sql}
         ORDER BY t.date DESC, t.transaction_id DESC
         LIMIT ? OFFSET ?
@@ -298,6 +305,11 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             "PredictionSource": r['prediction_source'] or '',
             "PredictionConfidence": r['prediction_confidence'] or 0,
             "PredictionReason": r['prediction_reason'] or '',
+            "TripID": r['trip_id'] or '',
+            "TripName": r['trip_name'] or '',
+            "TripYear": r['trip_year'],
+            "RentalPropertyID": r['rental_property_id'] or '',
+            "RentalPropertyName": r['rental_property_name'] or '',
             "AccountName": 'Legacy' if r['account_name_raw'] == 'Legacy' else (r['account_name'] or r['transaction_id']),
             "AccountType": r['account_type'],
             "AccountSubtype": r['account_subtype'],
@@ -883,6 +895,8 @@ def update_transaction():
         mown = float(data.get('mown', 0.0))
         note = data.get('note', '')
         subtype = data.get('subtype', '')
+        trip_id = (data.get('trip_id') or '').strip() or None
+        rental_property_id = (data.get('rental_property_id') or '').strip() or None
         
         if not tx_id:
             return jsonify({"error": "Missing transaction_id"}), 400
@@ -903,6 +917,30 @@ def update_transaction():
         amount = abs(float(row['amount']))
         direction = row['direction']
         merchant = row['merchant']
+        custom_type_lower = (custom_type or '').strip().lower()
+        if custom_type_lower == 'travel':
+            rental_property_id = None
+            if trip_id:
+                exists = cursor.execute(
+                    "SELECT 1 FROM trips WHERE id = ? AND user_id = ?",
+                    (trip_id, user_id)
+                ).fetchone()
+                if not exists:
+                    conn.close()
+                    return jsonify({"error": "Trip not found"}), 404
+        elif custom_type_lower == 'rentals':
+            trip_id = None
+            if rental_property_id:
+                exists = cursor.execute(
+                    "SELECT 1 FROM rental_properties WHERE id = ? AND user_id = ?",
+                    (rental_property_id, user_id)
+                ).fetchone()
+                if not exists:
+                    conn.close()
+                    return jsonify({"error": "Property not found"}), 404
+        else:
+            trip_id = None
+            rental_property_id = None
         
         # Calculate ipay and bpay
         if direction == 'inflow':
@@ -922,15 +960,74 @@ def update_transaction():
         cursor.execute(
             """
             UPDATE transactions 
-            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, reviewed = 1 
+            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, trip_id = ?, rental_property_id = ?, reviewed = 1 
             WHERE transaction_id = ? AND user_id = ?
             """,
-            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, tx_id, user_id)
+            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, tx_id, user_id)
         )
         auto_applied_count = apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id)
         conn.commit()
         conn.close()
         return jsonify({"status": "success", "auto_applied_count": auto_applied_count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@transactions_bp.route('/api/update_transaction_assignment', methods=['POST'])
+def update_transaction_assignment():
+    try:
+        user_id = current_user_id()
+        data = request.get_json() or {}
+        tx_id = data.get('transaction_id')
+        trip_id = (data.get('trip_id') or '').strip() or None
+        rental_property_id = (data.get('rental_property_id') or '').strip() or None
+        if not tx_id:
+            return jsonify({"error": "Missing transaction_id"}), 400
+
+        conn = get_db()
+        row = conn.execute(
+            "SELECT type FROM transactions WHERE transaction_id = ? AND user_id = ?",
+            (tx_id, user_id)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "Transaction not found"}), 404
+
+        tx_type = (row["type"] or "").strip().lower()
+        if tx_type == "travel":
+            rental_property_id = None
+            if trip_id:
+                exists = conn.execute(
+                    "SELECT 1 FROM trips WHERE id = ? AND user_id = ?",
+                    (trip_id, user_id)
+                ).fetchone()
+                if not exists:
+                    conn.close()
+                    return jsonify({"error": "Trip not found"}), 404
+        elif tx_type == "rentals":
+            trip_id = None
+            if rental_property_id:
+                exists = conn.execute(
+                    "SELECT 1 FROM rental_properties WHERE id = ? AND user_id = ?",
+                    (rental_property_id, user_id)
+                ).fetchone()
+                if not exists:
+                    conn.close()
+                    return jsonify({"error": "Property not found"}), 404
+        else:
+            trip_id = None
+            rental_property_id = None
+
+        conn.execute(
+            """
+            UPDATE transactions
+            SET trip_id = ?, rental_property_id = ?
+            WHERE transaction_id = ? AND user_id = ?
+            """,
+            (trip_id, rental_property_id, tx_id, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -1,7 +1,83 @@
 ﻿import { state } from './state.js';
-import { updateTransactionReview, unconfirmTransaction, deleteTransactionApi } from './api.js';
+import { updateTransactionReview, updateTransactionAssignmentApi, unconfirmTransaction, deleteTransactionApi } from './api.js';
 import { formatCurrency, getRulesForCategory } from './utils.js';
 import { loadMergeCandidates } from './merge-service.js';
+
+const ASSIGNMENT_TYPES = {
+    travel: "travel",
+    rentals: "rental_property"
+};
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function assignmentKind(type) {
+    return ASSIGNMENT_TYPES[String(type || "").trim().toLowerCase()] || "";
+}
+
+function renderGroupedOptions(items, selectedId, labelFn) {
+    return items.map(item => {
+        const id = item.id || "";
+        return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(labelFn(item))}</option>`;
+    }).join("");
+}
+
+function renderTripSelect(t, disabled, autoSave) {
+    const selectedId = t.TripID || "";
+    const txYear = String((t.Date || "").slice(0, 4));
+    const trips = state.trips || [];
+    const sameYear = trips.filter(trip => String(trip.year || "") === txYear && (trip.status || "active") !== "archived");
+    const other = trips.filter(trip => String(trip.year || "") !== txYear && (trip.status || "active") !== "archived");
+    const currentArchived = trips.filter(trip => trip.id === selectedId && (trip.status || "active") === "archived");
+    let options = '<option value="">Unassigned</option>';
+    if (sameYear.length) {
+        options += `<optgroup label="Suggested">${renderGroupedOptions(sameYear, selectedId, trip => `${trip.year || ""} ${trip.name}`.trim())}</optgroup>`;
+    }
+    if (other.length) {
+        options += `<optgroup label="Other">${renderGroupedOptions(other, selectedId, trip => `${trip.year || ""} ${trip.name}`.trim())}</optgroup>`;
+    }
+    if (currentArchived.length) {
+        options += `<optgroup label="Archived">${renderGroupedOptions(currentArchived, selectedId, trip => `${trip.year || ""} ${trip.name}`.trim())}</optgroup>`;
+    }
+    return `
+        <select class="table-select assignment-select" id="assignment-select-${t.TransactionID}" data-kind="trip" data-autosave="${autoSave ? "1" : "0"}" ${disabled ? "disabled" : ""} onchange="onAssignmentChange('${t.TransactionID}')" onclick="event.stopPropagation()">
+            ${options}
+        </select>
+    `;
+}
+
+function renderRentalPropertySelect(t, disabled, autoSave) {
+    const selectedId = t.RentalPropertyID || "";
+    const properties = state.rentalProperties || [];
+    const active = properties.filter(prop => Number(prop.active) !== 0);
+    const currentInactive = properties.filter(prop => prop.id === selectedId && Number(prop.active) === 0);
+    let options = '<option value="">Unassigned</option>';
+    if (active.length) {
+        options += renderGroupedOptions(active, selectedId, prop => prop.name);
+    }
+    if (currentInactive.length) {
+        options += `<optgroup label="Inactive">${renderGroupedOptions(currentInactive, selectedId, prop => prop.name)}</optgroup>`;
+    }
+    return `
+        <select class="table-select assignment-select" id="assignment-select-${t.TransactionID}" data-kind="rental_property" data-autosave="${autoSave ? "1" : "0"}" ${disabled ? "disabled" : ""} onchange="onAssignmentChange('${t.TransactionID}')" onclick="event.stopPropagation()">
+            ${options}
+        </select>
+    `;
+}
+
+function renderAssignmentSelect(t, selectedType = t.Type) {
+    const kind = assignmentKind(selectedType);
+    const isPending = t.Pending === 1;
+    const autoSave = kind && kind === assignmentKind(t.Type);
+    if (kind === "travel") return renderTripSelect(t, isPending, autoSave);
+    if (kind === "rental_property") return renderRentalPropertySelect(t, isPending, autoSave);
+    return `<span class="text-muted">-</span>`;
+}
 
 export function renderTransactionsList() {
     const tbody = document.getElementById("tx-tbody");
@@ -18,7 +94,7 @@ export function renderTransactionsList() {
 
     const creatorHtml = `
         <tr class="create-trigger-row" id="create-trigger-row" onclick="event.stopPropagation()">
-            <td colspan="8">
+            <td colspan="9">
                 <div class="create-trigger-btn" onclick="toggleCreatePanel(true)">
                     <i data-lucide="plus-circle" style="width:14px;height:14px;margin-right:6px;vertical-align:middle;"></i>
                     Create manual transaction / quick templates
@@ -44,6 +120,7 @@ export function renderTransactionsList() {
                 </select>
             </td>
             <td><select id="create-tx-subtype" class="table-select" style="width:100%;"></select></td>
+            <td><span class="text-muted">-</span></td>
             <td><input type="text" id="create-tx-note" class="table-input" placeholder="Note..." style="width:100%;"></td>
             <td style="text-align:center;">
                 <div style="display:flex;gap:4px;justify-content:center;">
@@ -57,7 +134,7 @@ export function renderTransactionsList() {
             </td>
         </tr>
         <tr class="create-form-row" id="create-details-row" style="display:none;" onclick="event.stopPropagation()">
-            <td colspan="8">
+            <td colspan="9">
                 <div class="review-panel" style="padding: 14px; background-color: var(--bg-main); border-radius: 8px; border: 1px solid var(--border-color);">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 14px;">
                         <div style="display:flex; flex-direction:column; gap:4px;">
@@ -101,7 +178,7 @@ export function renderTransactionsList() {
     if (state.transactions.length === 0) {
         const trEmpty = document.createElement("tr");
         trEmpty.innerHTML = `
-            <td colspan="8" style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
+            <td colspan="9" style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
                 <i data-lucide="inbox" style="width:32px; height:32px; margin-bottom:12px; opacity:0.5;"></i>
                 <p style="font-size:14px; font-weight:600;">No matching transactions</p>
                 <p style="font-size:12px; margin-top:4px;">Try adjusting filters, or sync the latest bank transactions.</p>
@@ -168,8 +245,10 @@ export function renderTransactionsList() {
         `;
 
         // --- Col 7: Note ---
+        const assignmentCellHtml = `<div id="assignment-cell-${t.TransactionID}">${renderAssignmentSelect(t)}</div>`;
+
         const noteInputHtml = `
-            <input type="text" class="table-input" id="note-input-${t.TransactionID}" value="${t.Note}" ${disabledAttr} placeholder="Note..." onclick="event.stopPropagation()">
+            <input type="text" class="table-input" id="note-input-${t.TransactionID}" value="${escapeHtml(t.Note)}" ${disabledAttr} placeholder="Note..." onclick="event.stopPropagation()">
         `;
 
         // --- Col 8: Action button with Legacy-specific styles ---
@@ -200,6 +279,7 @@ export function renderTransactionsList() {
             <td class="${dirClass}" style="text-align: right; font-weight: 700;">${dirPrefix}${formatCurrency(t.Amount)}</td>
             <td>${typeSelectHtml}</td>
             <td>${subtypeSelectHtml}</td>
+            <td>${assignmentCellHtml}</td>
             <td>${noteInputHtml}</td>
             <td style="text-align: center;" onclick="event.stopPropagation()">${actionButtonHtml}</td>
         `;
@@ -257,7 +337,7 @@ export function renderTransactionsList() {
         }
 
         detailTr.innerHTML = `
-            <td colspan="8">
+            <td colspan="9">
                 <div class="detail-container" style="display:flex; flex-direction:column; gap:16px;">
                     <!-- Primary Metadata Row -->
                     <div style="display: flex; gap: 24px; font-size:12px; color:var(--text-muted); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; flex-wrap: wrap;">
@@ -389,6 +469,38 @@ export function onRowCategoryChange(txId, isInitial = false, savedSubtype = "") 
             subSelect.value = "";
         }
     }
+
+    const tx = state.transactions.find(t => t.TransactionID === txId);
+    const assignmentCell = document.getElementById(`assignment-cell-${txId}`);
+    if (tx && assignmentCell) {
+        assignmentCell.innerHTML = renderAssignmentSelect(tx, cat);
+    }
+}
+
+export async function onAssignmentChange(txId) {
+    const select = document.getElementById(`assignment-select-${txId}`);
+    if (!select || select.dataset.autosave !== "1") return;
+
+    const value = select.value || "";
+    const kind = select.dataset.kind || "";
+    const tripId = kind === "trip" ? value : "";
+    const rentalPropertyId = kind === "rental_property" ? value : "";
+    try {
+        const res = await updateTransactionAssignmentApi(txId, tripId, rentalPropertyId);
+        if (res.status !== "success") {
+            alert("Failed to save assignment: " + res.error);
+            const { loadData } = await import('../app.js');
+            await loadData({ preserveScroll: true });
+            return;
+        }
+        const tx = state.transactions.find(t => t.TransactionID === txId);
+        if (tx) {
+            tx.TripID = tripId;
+            tx.RentalPropertyID = rentalPropertyId;
+        }
+    } catch (err) {
+        alert("Assignment update failed: " + err.message);
+    }
 }
 
 export function updateSplitPreview(txId, amount, direction) {
@@ -448,9 +560,14 @@ export async function submitTransactionReview(txId, event) {
     const isB = document.getElementById(`isb-select-${txId}`)?.value || 'n';
     const ratio = parseFloat(document.getElementById(`ratio-input-${txId}`)?.value) || 1.0;
     const mown = parseFloat(document.getElementById(`mown-input-${txId}`)?.value) || 0.0;
+    const assignmentSelect = document.getElementById(`assignment-select-${txId}`);
+    const assignmentKindValue = assignmentSelect?.dataset.kind || "";
+    const assignmentValue = assignmentSelect?.value || "";
+    const tripId = assignmentKindValue === "trip" ? assignmentValue : "";
+    const rentalPropertyId = assignmentKindValue === "rental_property" ? assignmentValue : "";
     
     try {
-        const res = await updateTransactionReview(txId, type, isB, ratio, mown, note, subtype);
+        const res = await updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId, rentalPropertyId);
         if (res.status === "success") {
             const { loadData } = await import('../app.js');
             await loadData({ preserveScroll: true });

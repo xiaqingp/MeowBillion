@@ -1,5 +1,7 @@
 export const state = {
     categoriesConfig: { categories: [], rules: {} },
+    trips: [],
+    rentalProperties: [],
     transactions: [],
     currentPage: 1,
     limit: 50,
