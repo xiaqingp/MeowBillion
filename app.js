@@ -1814,7 +1814,7 @@ function renderBucketCells(categories) {
     const buckets = categories || {};
     return ["Cash", "Stock", "Bond", "Real Estate"].map(key => {
         const val = buckets[key] || 0;
-        return `<td>$${formatCurrency(val)}</td>`;
+        return `<td class="allocation-bucket-cell">$${formatCurrency(val)}</td>`;
     }).join("");
 }
 
@@ -1876,28 +1876,28 @@ export async function renderInstitutionAllocationDetails() {
                 const id = escapeHtml(acc.account_id);
                 const manualDisabled = acc.source === "manual_asset" ? "disabled" : "";
                 return `
-            <tr>
-                <td>
+            <tr class="account-allocation-row">
+                <td class="allocation-account-cell">
                     <div class="allocation-primary">${escapeHtml(acc.name || "Account")}</div>
                     <div class="allocation-secondary">${escapeHtml([acc.type, acc.subtype].filter(Boolean).join(" / "))}</div>
                 </td>
-                <td><span class="allocation-source">${escapeHtml(sourceLabels[acc.source] || acc.source || "Auto")}</span></td>
-                <td>$${formatCurrency(acc.balance_current || 0)}</td>
+                <td class="allocation-source-cell"><span class="allocation-source">${escapeHtml(sourceLabels[acc.source] || acc.source || "Auto")}</span></td>
+                <td class="allocation-balance-cell">$${formatCurrency(acc.balance_current || 0)}</td>
                 ${renderBucketCells(acc.categories)}
-                <td class="allocation-percent-cell">
+                <td class="allocation-percent-cell allocation-manual-cell">
                     <div class="allocation-percent-grid" data-account-id="${id}">
                         ${["Cash", "Stock", "Bond", "Real Estate"].map(key => `
                             <label>
                                 <span>${key}</span>
-                                <input type="number" min="0" max="100" step="1" value="${(pct[key] || 0).toFixed(0)}" data-category="${key}" ${manualDisabled}>
+                                <input class="manual-allocation-input" type="number" min="0" max="100" step="1" value="${(pct[key] || 0).toFixed(0)}" data-category="${key}" ${manualDisabled}>
                             </label>
                         `).join("")}
                     </div>
                 </td>
-                <td>
+                <td class="allocation-action-cell">
                     <div class="allocation-actions">
-                        <button class="pagination-btn" onclick="saveAllocationOverride('${id}', event)" ${manualDisabled}>Save</button>
-                        <button class="pagination-btn" onclick="clearAllocationOverride('${id}', event)" ${manualDisabled}>Auto</button>
+                        <button class="pagination-btn allocation-save-btn" onclick="saveAllocationOverride('${id}', event)" ${manualDisabled}>Save</button>
+                        <button class="pagination-btn allocation-auto-btn" onclick="clearAllocationOverride('${id}', event)" ${manualDisabled}>Auto</button>
                     </div>
                 </td>
             </tr>`;
