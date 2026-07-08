@@ -675,7 +675,14 @@ def travel_analysis():
                        t.trip_id,
                        tr.name AS trip_name,
                        tr.year AS trip_year,
-                       COALESCE(t.ipay, -t.amount) AS ipay
+                       COALESCE(
+                           t.ipay,
+                           CASE
+                               WHEN lower(COALESCE(t.direction, '')) IN ('inflow', 'income', 'credit')
+                               THEN ABS(COALESCE(t.amount, 0))
+                               ELSE -ABS(COALESCE(t.amount, 0))
+                           END
+                       ) AS signed_amount
                 FROM transactions t
                 LEFT JOIN accounts a ON t.account_name = a.account_id AND a.user_id = t.user_id
                 LEFT JOIN trips tr ON t.trip_id = tr.id AND tr.user_id = t.user_id
@@ -690,7 +697,7 @@ def travel_analysis():
         trips = {}
         category_totals = {}
         for r in rows:
-            amount = abs(float(r["ipay"] or r["amount"] or 0.0))
+            amount = -float(r["signed_amount"] or 0.0)
             subtype = (transaction_field(r, travel_rules.get("category_source"), "Unclassified") or "Unclassified").strip() or "Unclassified"
             tx_year = (r["date"] or "")[:4]
             trip_year = str(r["trip_year"] or tx_year or "Unknown")
@@ -723,7 +730,7 @@ def travel_analysis():
                 "category": subtype,
                 "amount": amount,
                 "raw_amount": float(r["amount"] or 0.0),
-                "ipay": float(r["ipay"] or 0.0),
+                "ipay": float(r["signed_amount"] or 0.0),
                 "direction": r["direction"],
                 "account_name": 'Legacy' if r["account_name_raw"] == 'Legacy' else (r["account_name"] or r["account_name_raw"]),
                 "account_name_raw": r["account_name_raw"],

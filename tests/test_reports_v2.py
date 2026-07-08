@@ -31,6 +31,7 @@ class ReportsV2Tests(unittest.TestCase):
                 VALUES
                 ('travel_1', '2026-05-01', 'Travel', 'Airline', 100, 'outflow', 'a1', 'Flight', 'old note A', 1, 0, -100, 'trip_1', NULL, 'u1'),
                 ('travel_2', '2026-05-02', 'Travel', 'Hotel', 200, 'outflow', 'a1', 'Hotel', 'old note B', 1, 0, -200, 'trip_1', NULL, 'u1'),
+                ('travel_refund', '2026-05-03', 'Travel', 'Refund', 50, 'inflow', 'a1', 'Hotel', 'refund note', 1, 0, 50, 'trip_1', NULL, 'u1'),
                 ('travel_unassigned', '2026-06-01', 'Travel', 'Taxi', 50, 'outflow', 'a1', 'Transport', '', 1, 0, -50, NULL, NULL, 'u1'),
                 ('rental_1', '2026-06-01', 'Rentals', 'Bank', 2400, 'outflow', 'a1', 'Mortgage', 'old property A', 1, 0, -2400, NULL, 'rprop_1', 'u1'),
                 ('rental_2', '2026-06-02', 'Rentals', 'Tenant', 3000, 'inflow', 'a1', 'Rent', 'old property B', 1, 0, 3000, NULL, 'rprop_1', 'u1'),
@@ -51,8 +52,10 @@ class ReportsV2Tests(unittest.TestCase):
         japan = next(trip for trip in trips if trip["trip_id"] == "trip_1")
         unassigned = next(trip for trip in trips if trip["trip"] == "Unassigned Travel 2026")
         self.assertEqual(japan["trip"], "Japan")
-        self.assertEqual(japan["count"], 2)
-        self.assertAlmostEqual(japan["total"], 300)
+        self.assertEqual(japan["count"], 3)
+        self.assertAlmostEqual(japan["total"], 250)
+        refund = next(tx for tx in japan["transactions"] if tx["transaction_id"] == "travel_refund")
+        self.assertAlmostEqual(refund["amount"], -50)
         self.assertEqual(unassigned["count"], 1)
 
     def test_rental_analysis_groups_by_property_id_not_note(self):
