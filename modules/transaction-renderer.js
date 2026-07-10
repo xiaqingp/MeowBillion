@@ -103,6 +103,16 @@ export function renderTransactionsList() {
             </td>
         </tr>
         <tr class="create-form-row" id="create-form-row" style="display:none;" onclick="event.stopPropagation()">
+            <td style="text-align:center;">
+                <div style="display:flex;gap:4px;justify-content:center;">
+                    <button class="btn-action-inline btn-confirm-inline" style="background-color:var(--color-success-glow);color:var(--color-success);border-color:var(--color-success);" onclick="submitCreateManual(event)">
+                        <i data-lucide="save" style="width:12px;height:12px;"></i> Save
+                    </button>
+                    <button class="btn-action-inline" style="border-color:var(--text-muted);color:var(--text-muted);" onclick="toggleCreatePanel(false, event)">
+                        <i data-lucide="x" style="width:12px;height:12px;"></i>
+                    </button>
+                </div>
+            </td>
             <td><input type="date" id="create-tx-date" class="table-input" style="width:100%;"></td>
             <td style="text-align:center;"><span style="font-size:12px;color:var(--text-muted);font-weight:700;">Legacy</span></td>
             <td><input type="text" id="create-tx-merchant" class="table-input" placeholder="Merchant / description..." style="width:100%;"></td>
@@ -123,16 +133,6 @@ export function renderTransactionsList() {
             <td><select id="create-tx-subtype" class="table-select" style="width:100%;"></select></td>
             <td><span class="text-muted">-</span></td>
             <td><input type="text" id="create-tx-note" class="table-input" placeholder="Note..." style="width:100%;"></td>
-            <td style="text-align:center;">
-                <div style="display:flex;gap:4px;justify-content:center;">
-                    <button class="btn-action-inline btn-confirm-inline" style="background-color:var(--color-success-glow);color:var(--color-success);border-color:var(--color-success);" onclick="submitCreateManual(event)">
-                        <i data-lucide="save" style="width:12px;height:12px;"></i> Save
-                    </button>
-                    <button class="btn-action-inline" style="border-color:var(--text-muted);color:var(--text-muted);" onclick="toggleCreatePanel(false, event)">
-                        <i data-lucide="x" style="width:12px;height:12px;"></i>
-                    </button>
-                </div>
-            </td>
         </tr>
         <tr class="create-form-row" id="create-details-row" style="display:none;" onclick="event.stopPropagation()">
             <td colspan="9">
@@ -274,6 +274,7 @@ export function renderTransactionsList() {
 
         // --- Assemble row matching the table header ---
         tr.innerHTML = `
+            <td style="text-align: center;" onclick="event.stopPropagation()">${actionButtonHtml}</td>
             <td><strong>${dateText}</strong></td>
             <td style="text-align: center;">${accountCellHtml}</td>
             <td>${merchantHtml}</td>
@@ -282,7 +283,6 @@ export function renderTransactionsList() {
             <td>${subtypeSelectHtml}</td>
             <td>${assignmentCellHtml}</td>
             <td>${noteInputHtml}</td>
-            <td style="text-align: center;" onclick="event.stopPropagation()">${actionButtonHtml}</td>
         `;
         tbody.appendChild(tr);
 
