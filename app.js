@@ -12,6 +12,7 @@ import {
     fetchPortfolioAllocationApi,
     fetchPortfolioAllocationDetailsApi,
     fetchAllocationAccountsApi,
+    fetchAccountBalanceHistoryApi,
     saveAllocationOverrideApi,
     fetchTransactionFilterOptionsApi,
     fetchMonthlyAnalysisApi,
@@ -1077,6 +1078,10 @@ let netWorthTrendHistory = [];
 let netWorthTrendHistoryPromise = null;
 let allocationAccountsCache = null;
 let allocationAccountsPromise = null;
+let expandedAllocationAccountId = "";
+let accountBalanceHistoryRange = "1M";
+const accountBalanceHistoryCache = {};
+const accountBalanceChartInstances = {};
 
 async function fetchAllocationHistoryCached(force = false) {
     if (force) {
@@ -2112,9 +2117,131 @@ function renderBucketCells(categories) {
     }).join("");
 }
 
+function allocationDomId(accountId) {
+    return String(accountId || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+export async function toggleAccountBalanceHistory(accountId, event) {
+    if (event) event.stopPropagation();
+    if (expandedAllocationAccountId === accountId) {
+        expandedAllocationAccountId = "";
+        Object.values(accountBalanceChartInstances).forEach(chart => chart?.destroy?.());
+        Object.keys(accountBalanceChartInstances).forEach(key => delete accountBalanceChartInstances[key]);
+        await renderInstitutionAllocationDetails();
+        return;
+    }
+    expandedAllocationAccountId = accountId;
+    accountBalanceHistoryRange = "1M";
+    await renderInstitutionAllocationDetails();
+}
+
+export async function setAccountBalanceHistoryRange(accountId, rangeKey, event) {
+    if (event) event.stopPropagation();
+    accountBalanceHistoryRange = rangeKey || "1M";
+    await renderExpandedAccountBalanceHistory(accountId, true);
+}
+
+async function fetchAccountBalanceHistoryCached(accountId, rangeKey, force = false) {
+    const cacheKey = `${accountId}::${rangeKey}`;
+    if (!force && accountBalanceHistoryCache[cacheKey]) return accountBalanceHistoryCache[cacheKey];
+    const payload = await fetchAccountBalanceHistoryApi(accountId, rangeKey);
+    accountBalanceHistoryCache[cacheKey] = payload;
+    return payload;
+}
+
+async function renderExpandedAccountBalanceHistory(accountId, force = false) {
+    const safeId = allocationDomId(accountId);
+    const canvas = document.getElementById(`account-balance-chart-${safeId}`);
+    const status = document.getElementById(`account-balance-status-${safeId}`);
+    const rangeWrap = document.getElementById(`account-balance-ranges-${safeId}`);
+    if (!canvas) return;
+    if (status) status.textContent = "Loading balance history...";
+
+    try {
+        const payload = await fetchAccountBalanceHistoryCached(accountId, accountBalanceHistoryRange, force);
+        const history = payload.history || [];
+        if (rangeWrap) {
+            rangeWrap.querySelectorAll("button[data-range]").forEach(btn => {
+                btn.classList.toggle("active", btn.dataset.range === accountBalanceHistoryRange);
+            });
+        }
+        if (accountBalanceChartInstances[accountId]) {
+            accountBalanceChartInstances[accountId].destroy();
+            delete accountBalanceChartInstances[accountId];
+        }
+        if (!history.length) {
+            if (status) status.textContent = "No balance history yet.";
+            return;
+        }
+        if (status) {
+            const first = history[0]?.date || "";
+            const last = history[history.length - 1]?.date || "";
+            status.textContent = `${history.length} points${first && last ? ` · ${first} to ${last}` : ""}`;
+        }
+        const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+        accountBalanceChartInstances[accountId] = new Chart(canvas.getContext("2d"), {
+            type: "line",
+            data: {
+                datasets: [{
+                    label: "Balance",
+                    data: history.map(row => ({
+                        x: new Date(`${row.date}T00:00:00`).getTime(),
+                        y: row.balance || 0
+                    })),
+                    borderColor: "#3b82f6",
+                    backgroundColor: "rgba(59, 130, 246, 0.12)",
+                    borderWidth: 2,
+                    pointRadius: history.length > 45 ? 0 : 2,
+                    pointHoverRadius: 4,
+                    tension: 0.25,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: items => {
+                                const value = items[0]?.parsed?.x;
+                                return value ? new Date(value).toLocaleDateString() : "";
+                            },
+                            label: item => currencyFormatter.format(item.parsed.y || 0)
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: "linear",
+                        ticks: {
+                            color: "#94a3b8",
+                            callback: value => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+                            maxTicksLimit: 6
+                        },
+                        grid: { color: "rgba(148, 163, 184, 0.12)" }
+                    },
+                    y: {
+                        ticks: { color: "#94a3b8", callback: value => currencyFormatter.format(value) },
+                        grid: { color: "rgba(148, 163, 184, 0.12)" }
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Error rendering account balance history:", e);
+        if (status) status.textContent = "Unable to load balance history.";
+    }
+}
+
 export async function renderInstitutionAllocationDetails() {
     const container = document.getElementById("institution-allocation-container");
     if (!container) return;
+
+    Object.values(accountBalanceChartInstances).forEach(chart => chart?.destroy?.());
+    Object.keys(accountBalanceChartInstances).forEach(key => delete accountBalanceChartInstances[key]);
 
     container.innerHTML = `
         <div class="allocation-empty">
@@ -2172,11 +2299,16 @@ export async function renderInstitutionAllocationDetails() {
             const rows = group.map(acc => {
                 const pct = acc.percentages || {};
                 const id = escapeHtml(acc.account_id);
+                const safeDomId = allocationDomId(acc.account_id);
                 const manualDisabled = acc.source === "manual_asset" ? "disabled" : "";
                 const source = acc.source || "auto";
                 const sourceClass = `allocation-source-${escapeHtml(source)}`;
                 const warning = acc.allocation_warning ? ` title="${escapeHtml(acc.allocation_warning)}"` : "";
-                return `
+                const isExpanded = expandedAllocationAccountId === acc.account_id;
+                const historyButtons = ["1M", "3M", "1Y", "5Y", "ALL"].map(range => `
+                    <button class="pagination-btn account-balance-range-btn ${range === accountBalanceHistoryRange ? "active" : ""}" data-range="${range}" onclick="setAccountBalanceHistoryRange('${id}', '${range}', event)">${range === "ALL" ? "All" : range}</button>
+                `).join("");
+                const accountRow = `
             <tr class="account-allocation-row">
                 <td class="allocation-account-cell">
                     <div class="allocation-primary">${escapeHtml(acc.name || "Account")}</div>
@@ -2199,9 +2331,32 @@ export async function renderInstitutionAllocationDetails() {
                     <div class="allocation-actions">
                         <button class="pagination-btn allocation-save-btn" onclick="saveAllocationOverride('${id}', event)" ${manualDisabled}>Save</button>
                         <button class="pagination-btn allocation-auto-btn" onclick="clearAllocationOverride('${id}', event)" ${manualDisabled}>Auto</button>
+                        <button class="pagination-btn allocation-history-btn" onclick="toggleAccountBalanceHistory('${id}', event)" title="Balance history">
+                            <i data-lucide="${isExpanded ? "chevron-up" : "line-chart"}"></i>
+                        </button>
                     </div>
                 </td>
             </tr>`;
+                const detailRow = isExpanded ? `
+            <tr class="account-balance-detail-row">
+                <td colspan="9">
+                    <div class="account-balance-detail">
+                        <div class="account-balance-detail-header">
+                            <div>
+                                <div class="allocation-primary">Balance History</div>
+                                <div class="allocation-secondary" id="account-balance-status-${safeDomId}">Loading balance history...</div>
+                            </div>
+                            <div class="account-balance-range-controls" id="account-balance-ranges-${safeDomId}">
+                                ${historyButtons}
+                            </div>
+                        </div>
+                        <div class="account-balance-chart-wrap">
+                            <canvas id="account-balance-chart-${safeDomId}"></canvas>
+                        </div>
+                    </div>
+                </td>
+            </tr>` : "";
+                return accountRow + detailRow;
             }).join("");
             return bankRow + rows;
         }).join("");
@@ -2233,6 +2388,9 @@ export async function renderInstitutionAllocationDetails() {
                 </table>
             </div>
         `;
+        if (expandedAllocationAccountId) {
+            await renderExpandedAccountBalanceHistory(expandedAllocationAccountId);
+        }
     } catch (e) {
         console.error("Error rendering institution allocation details:", e);
         container.innerHTML = `
@@ -2530,6 +2688,8 @@ window.renderBalanceTrendChart = renderBalanceTrendChart;
 window.renderAssetAllocationChart = renderAssetAllocationChart;
 window.saveAllocationOverride = saveAllocationOverride;
 window.clearAllocationOverride = clearAllocationOverride;
+window.toggleAccountBalanceHistory = toggleAccountBalanceHistory;
+window.setAccountBalanceHistoryRange = setAccountBalanceHistoryRange;
 window.fillTripManagerForm = fillTripManagerForm;
 window.selectTripManagerItem = selectTripManagerItem;
 window.saveTripRow = saveTripRow;

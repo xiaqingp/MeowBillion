@@ -113,6 +113,7 @@
 | T1 | Maintain separate net worth and allocation trend charts | Done | Manual chart check | Passed previously |
 | T2 | Keep allocation defaults and manual overrides understandable | In progress | Allocation tests and DB spot checks | Ongoing |
 | T3 | Investigate institution-specific holdings gaps | In progress | Plaid status and DB holdings inspection | Ongoing |
+| T4 | Add expandable account balance history in Account Allocation | Done | `tests/test_account_balance_history.py`; full unittest suite; static load check | Passed 2026-07-09 |
 
 #### Delivery Notes
 
@@ -147,3 +148,4 @@
 | Date | Change | Reason | Affected milestone/task |
 | --- | --- | --- | --- |
 | 2026-07-09 | Created baseline milestone structure | Coho start approved | M1/T1 |
+| 2026-07-09 | Added expandable account balance history to Account Allocation | User requested account-level history in Overview | M4/T4 |

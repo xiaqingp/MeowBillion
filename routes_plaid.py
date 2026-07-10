@@ -2091,6 +2091,93 @@ def get_allocation_accounts():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@plaid_bp.route('/api/account_balance_history', methods=['GET'])
+def get_account_balance_history():
+    try:
+        user_id = current_user_id()
+        account_id = (request.args.get('account_id') or '').strip()
+        range_key = (request.args.get('range') or '1M').strip().upper()
+        if not account_id:
+            return jsonify({"error": "Missing account_id"}), 400
+
+        range_days = {
+            "1M": 30,
+            "3M": 90,
+            "1Y": 365,
+            "5Y": 365 * 5,
+        }
+        with get_db() as conn:
+            account = conn.execute(
+                """
+                SELECT account_id, name, official_name, type, subtype, institution_name, balance_current
+                FROM accounts
+                WHERE account_id = ? AND user_id = ?
+                """,
+                (account_id, user_id)
+            ).fetchone()
+
+            source_table = "account_balances_history"
+            if account:
+                rows = conn.execute(
+                    """
+                    SELECT date, balance_current AS balance
+                    FROM account_balances_history
+                    WHERE account_id = ? AND user_id = ?
+                    ORDER BY date ASC
+                    """,
+                    (account_id, user_id)
+                ).fetchall()
+                account_payload = dict(account)
+            else:
+                manual = conn.execute(
+                    """
+                    SELECT asset_id AS account_id, name, asset_type AS type, NULL AS official_name, NULL AS subtype,
+                           'Manual Assets' AS institution_name, value AS balance_current
+                    FROM manual_assets
+                    WHERE asset_id = ? AND user_id = ?
+                    """,
+                    (account_id, user_id)
+                ).fetchone()
+                if not manual:
+                    return jsonify({"error": "Account not found"}), 404
+                source_table = "account_value_estimates"
+                rows = conn.execute(
+                    """
+                    SELECT date, value AS balance
+                    FROM account_value_estimates
+                    WHERE account_id = ? AND user_id = ?
+                    ORDER BY date ASC
+                    """,
+                    (account_id, user_id)
+                ).fetchall()
+                account_payload = dict(manual)
+
+        history = [{"date": row["date"], "balance": float(row["balance"] or 0.0)} for row in rows]
+        if range_key != "ALL" and history:
+            days = range_days.get(range_key)
+            if days:
+                from datetime import datetime, timedelta
+                last_date = datetime.strptime(history[-1]["date"], "%Y-%m-%d")
+                cutoff = last_date - timedelta(days=days)
+                filtered = [
+                    row for row in history
+                    if datetime.strptime(row["date"], "%Y-%m-%d") >= cutoff
+                ]
+                prior = next((
+                    row for row in reversed(history)
+                    if datetime.strptime(row["date"], "%Y-%m-%d") < cutoff
+                ), None)
+                history = ([prior] if prior and len(filtered) < 2 else []) + filtered
+
+        return jsonify({
+            "account": account_payload,
+            "history": history,
+            "range": range_key,
+            "source": source_table
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @plaid_bp.route('/api/allocation_history', methods=['GET'])
 def get_allocation_history():
     try:

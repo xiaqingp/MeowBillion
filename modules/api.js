@@ -364,6 +364,13 @@ export async function fetchAllocationAccountsApi() {
     return await res.json();
 }
 
+export async function fetchAccountBalanceHistoryApi(accountId, range = "1M") {
+    const query = new URLSearchParams({ account_id: accountId, range });
+    const res = await fetch(`/api/account_balance_history?${query}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
 export async function saveAllocationOverrideApi(accountId, percentages, clear = false) {
     const res = await fetch("/api/allocation_overrides", {
         method: "POST",

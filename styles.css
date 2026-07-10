@@ -2317,7 +2317,7 @@ select:focus, input:focus, button:focus {
 
 .allocation-account-table th:nth-child(9),
 .allocation-account-table td:nth-child(9) {
-    width: 132px;
+    width: 168px;
 }
 
 .allocation-account-table th:nth-child(8),
@@ -2404,7 +2404,7 @@ select:focus, input:focus, button:focus {
     align-items: center;
     justify-content: end;
     gap: 6px;
-    min-width: 118px;
+    min-width: 154px;
     min-height: 32px;
 }
 
@@ -2419,6 +2419,58 @@ select:focus, input:focus, button:focus {
     justify-content: center;
     font-size: 11px;
     white-space: nowrap;
+}
+
+.allocation-actions .allocation-history-btn {
+    width: 34px;
+}
+
+.allocation-history-btn i {
+    width: 14px;
+    height: 14px;
+}
+
+.account-balance-detail-row td {
+    padding: 0;
+    background: rgba(15, 23, 42, 0.18);
+}
+
+.account-balance-detail {
+    padding: 14px 16px 16px;
+}
+
+.account-balance-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.account-balance-range-controls {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.account-balance-range-btn {
+    width: 44px;
+    min-height: 28px;
+    padding: 0;
+    justify-content: center;
+}
+
+.account-balance-range-btn.active {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background-color: var(--color-primary-glow);
+}
+
+.account-balance-chart-wrap {
+    height: 240px;
+    min-width: 520px;
+    position: relative;
 }
 
 .allocation-bank-row td {

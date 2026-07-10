@@ -66,6 +66,7 @@ Core APIs:
 - `GET /api/travel_analysis`
 - `GET /api/rental_analysis`
 - `GET /api/monthly_analysis`
+- `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
 
 Operational commands:
 
@@ -138,6 +139,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 | Inline metadata manager tables | Fits the transaction-table editing pattern and reduces separate form/list friction | 2026-07-09 |
 | Assignment-only endpoint rejects reviewed transactions | Enforces review lock server-side, not just in UI | 2026-07-09 |
 | Travel report uses signed net spend | Refunds should reduce travel spend | 2026-07-09 |
+| Account balance history expands inside Account Allocation | Keeps account-level history contextual and avoids another large Overview chart | 2026-07-09 |
 
 ## Open Questions
 

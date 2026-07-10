@@ -41,3 +41,10 @@
 - Scope: Backend and regression checks.
 - Source: Project test runs.
 - Usage: Run before delivery when backend/data/report behavior changes.
+
+## 2026-07-09 - Account balance history
+
+- Fact: Account-level balance history is exposed through `GET /api/account_balance_history?account_id=...&range=1M|3M|1Y|5Y|ALL`.
+- Scope: Overview Account Allocation expanded rows.
+- Source: M4/T4 implementation.
+- Usage: Use `account_balances_history` for Plaid accounts and `account_value_estimates` for manual assets; always filter by `user_id`.
