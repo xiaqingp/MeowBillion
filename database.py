@@ -319,6 +319,9 @@ def init_db():
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         ''')
+        conn.execute(
+            "INSERT OR IGNORE INTO app_config (key, value, updated_at) VALUES ('daily_sync_time', '16:00', CURRENT_TIMESTAMP)"
+        )
         conn.execute('''
         CREATE TABLE IF NOT EXISTS allocation_overrides (
             account_id TEXT PRIMARY KEY,

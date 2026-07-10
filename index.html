@@ -88,7 +88,7 @@
                     <div class="user-info">
                         <span class="user-name" id="sidebar-user-name">MeowBillion</span>
                         <span class="user-role">Personal finance workspace</span>
-                        <span class="version-meta">v0.1.7 · Updated 2026-07-09 21:28</span>
+                        <span class="version-meta">v0.1.8 · Updated 2026-07-10 11:19</span>
                         <button class="footer-signout" id="signout-btn">Sign out</button>
                     </div>
                 </div>
@@ -504,6 +504,17 @@
                                 </button>
                                 <button class="sync-btn settings-btn-danger" id="settings-disconnect-btn" disabled>
                                     <i data-lucide="trash-2"></i> Disconnect all
+                                </button>
+                            </div>
+
+                            <div class="settings-schedule-form">
+                                <div>
+                                    <h4>Daily auto-sync</h4>
+                                    <p id="settings-sync-schedule-note">All active users sync at this local server time.</p>
+                                </div>
+                                <input id="settings-daily-sync-time" class="filter-select" type="time" value="16:00">
+                                <button class="sync-btn settings-btn-secondary" id="settings-save-sync-schedule-btn">
+                                    <i data-lucide="clock-3"></i> Save time
                                 </button>
                             </div>
                         </div>

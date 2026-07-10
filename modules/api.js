@@ -3,6 +3,20 @@ export async function fetchCredentialsStatus() {
     return await res.json();
 }
 
+export async function fetchSyncScheduleApi() {
+    const res = await fetch("/api/sync_schedule");
+    return await res.json();
+}
+
+export async function saveSyncScheduleApi(dailySyncTime) {
+    const res = await fetch("/api/sync_schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daily_sync_time: dailySyncTime })
+    });
+    return await res.json();
+}
+
 export async function fetchPlaidCredentialsApi() {
     const res = await fetch("/api/plaid_credentials");
     return await res.json();

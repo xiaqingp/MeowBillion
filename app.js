@@ -24,6 +24,8 @@ import {
     logoutApi,
     fetchPlaidCredentialsApi,
     savePlaidCredentialsApi,
+    fetchSyncScheduleApi,
+    saveSyncScheduleApi,
     fetchTripsApi,
     createTripApi,
     updateTripApi,
@@ -446,17 +448,31 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
     const secretInput = document.getElementById("plaid-secret-input");
     const envSelect = document.getElementById("plaid-env-select");
     const saveCredentialsBtn = document.getElementById("settings-save-plaid-credentials-btn");
+    const dailySyncTimeInput = document.getElementById("settings-daily-sync-time");
+    const saveSyncScheduleBtn = document.getElementById("settings-save-sync-schedule-btn");
+    const syncScheduleNote = document.getElementById("settings-sync-schedule-note");
 
     if (!credStatus || !envStatus || !linkBtn || !syncBtn || !disconnectBtn) return;
 
     try {
-        const [status, plaidCreds] = await Promise.all([
+        const [status, plaidCreds, syncSchedule] = await Promise.all([
             preFetchedStatus ? Promise.resolve(preFetchedStatus) : fetchCredentialsStatus(),
-            fetchPlaidCredentialsApi()
+            fetchPlaidCredentialsApi(),
+            fetchSyncScheduleApi()
         ]);
         if (clientIdInput) clientIdInput.value = plaidCreds.client_id || "";
         if (secretInput) secretInput.placeholder = plaidCreds.has_credentials ? "Plaid Secret saved" : "Plaid Secret";
         if (envSelect) envSelect.value = plaidCreds.environment || status.env || "development";
+        if (dailySyncTimeInput) {
+            dailySyncTimeInput.value = syncSchedule.daily_sync_time || "16:00";
+            dailySyncTimeInput.disabled = !syncSchedule.can_edit;
+        }
+        if (saveSyncScheduleBtn) saveSyncScheduleBtn.disabled = !syncSchedule.can_edit;
+        if (syncScheduleNote) {
+            syncScheduleNote.textContent = syncSchedule.can_edit
+                ? "All active users sync at this local server time. Changes apply within 30 seconds."
+                : "All active users sync at this local server time. Only an administrator can change it.";
+        }
         if (status.has_credentials) {
             credStatus.textContent = "Configured";
             credStatus.style.color = "var(--color-success)";
@@ -507,6 +523,22 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
                 alert("Plaid credentials saved.");
             } finally {
                 saveCredentialsBtn.disabled = false;
+            }
+        };
+    }
+    if (saveSyncScheduleBtn) {
+        saveSyncScheduleBtn.onclick = async () => {
+            saveSyncScheduleBtn.disabled = true;
+            try {
+                const res = await saveSyncScheduleApi(dailySyncTimeInput?.value || "");
+                if (res.error) {
+                    alert("Unable to save daily sync time: " + res.error);
+                    return;
+                }
+                await checkPlaidConfiguration();
+                alert(`Daily auto-sync updated to ${res.daily_sync_time}.`);
+            } finally {
+                saveSyncScheduleBtn.disabled = false;
             }
         };
     }

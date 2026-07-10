@@ -48,3 +48,10 @@
 - Scope: Overview Account Allocation expanded rows.
 - Source: M4/T4 implementation.
 - Usage: Use `account_balances_history` for Plaid accounts and `account_value_estimates` for manual assets; always filter by `user_id`.
+
+## 2026-07-10 - Daily sync schedule
+
+- Fact: The global daily auto-sync time is stored in `app_config.daily_sync_time`, defaulting to `16:00` local server time.
+- Scope: All active users; only an active administrator may update it through `/api/sync_schedule`.
+- Source: M5/T4 implementation.
+- Usage: The scheduler reads the database every 30 seconds, so a saved setting applies without restarting the Flask server.

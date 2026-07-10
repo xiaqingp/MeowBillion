@@ -67,6 +67,7 @@ Core APIs:
 - `GET /api/rental_analysis`
 - `GET /api/monthly_analysis`
 - `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
+- `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:
 
@@ -140,6 +141,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 | Assignment-only endpoint rejects reviewed transactions | Enforces review lock server-side, not just in UI | 2026-07-09 |
 | Travel report uses signed net spend | Refunds should reduce travel spend | 2026-07-09 |
 | Account balance history expands inside Account Allocation | Keeps account-level history contextual and avoids another large Overview chart | 2026-07-09 |
+| Daily sync time is global and admin-controlled | One scheduler syncs all active users; polling the DB avoids restart after a time change | 2026-07-10 |
 
 ## Open Questions
 

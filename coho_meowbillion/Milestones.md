@@ -138,6 +138,7 @@
 | T1 | Verify local start command and batch file | Done | HTTP 200 on port 8090 | Passed previously |
 | T2 | Design backup strategy | Not started | Review restore workflow and encryption expectations | Pending |
 | T3 | Implement backup if approved | Not started | Backup/restore test with sample DB | Pending |
+| T4 | Add configurable global daily sync time | Done | `tests/test_sync_schedule.py`; full unittest suite; static load check | Passed 2026-07-10 |
 
 #### Delivery Notes
 
@@ -149,3 +150,4 @@
 | --- | --- | --- | --- |
 | 2026-07-09 | Created baseline milestone structure | Coho start approved | M1/T1 |
 | 2026-07-09 | Added expandable account balance history to Account Allocation | User requested account-level history in Overview | M4/T4 |
+| 2026-07-10 | Added admin-controlled global daily sync time | User requested daily auto-sync at 16:00 with no-restart updates | M5/T4 |

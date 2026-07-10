@@ -1307,6 +1307,36 @@ select:focus, input:focus, button:focus {
     white-space: nowrap;
 }
 
+.settings-schedule-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.settings-schedule-form > div {
+    flex: 1 1 260px;
+}
+
+.settings-schedule-form h4 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.settings-schedule-form p {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.settings-schedule-form input {
+    flex: 0 0 118px;
+    min-height: 36px;
+}
+
 .settings-btn-secondary {
     background: var(--bg-main) !important;
     border: 1px solid var(--border-color) !important;
