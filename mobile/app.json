@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "MeowBillion",
+    "slug": "meowbillion-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/meowbillion-logo.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.meowbillion.mobile",
+      "usesCleartextTraffic": true,
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/meowbillion-logo.png",
+        "backgroundColor": "#0ABAB5"
+      }
+    },
+    "web": {
+      "favicon": "./assets/meowbillion-logo.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-local-authentication",
+      "./plugins/with-meowbillion-android",
+      "@react-native-community/datetimepicker"
+    ]
+  }
+}

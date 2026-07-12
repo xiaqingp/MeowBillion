@@ -35,3 +35,9 @@ Thumbs.db
 
 # Antigravity/Codex local metadata
 .agents/
+
+# Mobile build evidence and transfer cache
+mobile/artifacts/
+mobile/m4*.png
+mobile/m4*.xml
+.tmp.driveupload/

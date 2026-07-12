@@ -1,7 +1,7 @@
 import os
 import re
 import sqlite3
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, g, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 
 from database import init_db
@@ -30,9 +30,23 @@ DEFAULT_DAILY_SYNC_TIME = "16:00"
 
 @app.before_request
 def require_login_for_api():
-    if not request.path.startswith("/api/") or request.path.startswith("/api/auth/"):
+    public_auth_paths = {
+        "/api/auth/status",
+        "/api/auth/setup",
+        "/api/auth/signup",
+        "/api/auth/login",
+        "/api/auth/mobile/login",
+    }
+    if not request.path.startswith("/api/") or request.path in public_auth_paths:
         return None
-    from auth import current_user_id
+    from auth import authenticate_mobile_token, current_user_id
+    if current_user_id():
+        return None
+    mobile_session = authenticate_mobile_token(request.headers.get("Authorization"))
+    if mobile_session:
+        g.mobile_user_id = mobile_session["user_id"]
+        g.mobile_session_id = mobile_session["session_id"]
+        return None
     if not current_user_id():
         return jsonify({"error": "Authentication required"}), 401
     return None

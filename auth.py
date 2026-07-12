@@ -1,19 +1,76 @@
 import os
 import sqlite3
 import uuid
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 from functools import wraps
-from flask import Blueprint, jsonify, has_request_context, request, session
+from flask import Blueprint, g, jsonify, has_request_context, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database import get_db
 
 auth_bp = Blueprint("auth", __name__)
+MOBILE_SESSION_TTL_DAYS = 30
 
 
 def current_user_id():
     if not has_request_context():
         return None
-    return session.get("user_id")
+    return getattr(g, "mobile_user_id", None) or session.get("user_id")
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def issue_mobile_session(conn, user_id, device_name):
+    token = secrets.token_urlsafe(48)
+    now = utc_now()
+    expires_at = now + timedelta(days=MOBILE_SESSION_TTL_DAYS)
+    conn.execute(
+        """
+        INSERT INTO mobile_session_tokens
+        (id, user_id, token_hash, device_name, created_at, expires_at, last_used_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            user_id,
+            hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            (device_name or "Android device").strip()[:120] or "Android device",
+            now.isoformat(),
+            expires_at.isoformat(),
+            now.isoformat(),
+        ),
+    )
+    return token, expires_at.isoformat()
+
+
+def authenticate_mobile_token(authorization_header):
+    if not authorization_header or not authorization_header.startswith("Bearer "):
+        return None
+    token = authorization_header.removeprefix("Bearer ").strip()
+    if not token:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = utc_now().isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id FROM mobile_session_tokens
+            WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+            """,
+            (token_hash, now),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE mobile_session_tokens SET last_used_at = ? WHERE id = ?",
+            (now, row["id"]),
+        )
+        conn.commit()
+    return {"session_id": row["id"], "user_id": row["user_id"]}
 
 
 def login_required(fn):
@@ -153,6 +210,92 @@ def login():
         return jsonify({"error": "Invalid email or password"}), 401
     session["user_id"] = row["id"]
     return jsonify({"status": "success"})
+
+
+@auth_bp.route("/api/auth/mobile/login", methods=["POST"])
+def mobile_login():
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email, display_name, role, password_hash FROM users WHERE email = ? AND active = 1",
+            (email,),
+        ).fetchone()
+        if not row or not check_password_hash(row["password_hash"], password):
+            return jsonify({"error": "Invalid email or password"}), 401
+        token, expires_at = issue_mobile_session(conn, row["id"], data.get("device_name"))
+        conn.commit()
+    return jsonify({
+        "access_token": token,
+        "expires_at": expires_at,
+        "user": {key: row[key] for key in ("id", "email", "display_name", "role")},
+    })
+
+
+@auth_bp.route("/api/auth/mobile/logout", methods=["POST"])
+@login_required
+def mobile_logout():
+    session_id = getattr(g, "mobile_session_id", None)
+    if session_id:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE mobile_session_tokens SET revoked_at = ? WHERE id = ? AND user_id = ?",
+                (utc_now().isoformat(), session_id, current_user_id()),
+            )
+            conn.commit()
+    return jsonify({"status": "success"})
+
+
+@auth_bp.route("/api/auth/mobile/sessions", methods=["GET"])
+@login_required
+def mobile_sessions():
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, device_name, created_at, expires_at, revoked_at, last_used_at
+            FROM mobile_session_tokens
+            WHERE user_id = ?
+            ORDER BY last_used_at DESC
+            """,
+            (current_user_id(),),
+        ).fetchall()
+    return jsonify({"sessions": [dict(row) for row in rows]})
+
+
+@auth_bp.route("/api/auth/mobile/sessions/<session_id>", methods=["DELETE"])
+@login_required
+def revoke_mobile_session(session_id):
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mobile_session_tokens
+            SET revoked_at = ?
+            WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+            """,
+            (utc_now().isoformat(), session_id, current_user_id()),
+        )
+        conn.commit()
+    if not cursor.rowcount:
+        return jsonify({"error": "Session not found"}), 404
+    return jsonify({"status": "success"})
+
+
+@auth_bp.route("/api/auth/mobile/sessions/revoke_others", methods=["POST"])
+@login_required
+def revoke_other_mobile_sessions():
+    current_session_id = getattr(g, "mobile_session_id", None)
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE mobile_session_tokens
+            SET revoked_at = ?
+            WHERE user_id = ? AND id != ? AND revoked_at IS NULL
+            """,
+            (utc_now().isoformat(), current_user_id(), current_session_id),
+        )
+        conn.commit()
+    return jsonify({"status": "success", "revoked_count": cursor.rowcount})
 
 
 @auth_bp.route("/api/auth/logout", methods=["POST"])

@@ -236,6 +236,19 @@ def init_db():
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS mobile_session_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            device_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            last_used_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        ''')
 
         # Create plaid_tokens table
         conn.execute('''
@@ -533,6 +546,8 @@ def init_db():
 
         # Create indexes after schema upgrades so a brand-new empty database has every indexed column.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC, transaction_id DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_session_tokens_hash ON mobile_session_tokens(token_hash)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mobile_session_tokens_user ON mobile_session_tokens(user_id, revoked_at, expires_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_reviewed ON transactions(reviewed)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_direction ON transactions(direction)")

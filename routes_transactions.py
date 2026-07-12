@@ -104,7 +104,7 @@ def parse_amount_filter(raw):
     except Exception:
         return None
 
-def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all'):
+def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', subtype='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all'):
     user_id = current_user_id()
     params = [user_id]
     where_clauses = ["t.user_id = ?"]
@@ -171,6 +171,9 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             placeholders = ",".join(["?"] * len(cats))
             where_clauses.append(f"t.type IN ({placeholders})")
             params.extend(cats)
+    if subtype and subtype != 'all':
+        where_clauses.append("t.subtype = ?")
+        params.append(subtype)
         
     # Multi-select transaction status.
     if reviewed_filter and reviewed_filter != 'all':
@@ -347,6 +350,7 @@ def get_transactions():
         query = request.args.get('query', '').strip()
         direction = request.args.get('direction', 'all').strip()
         category = request.args.get('category', 'all').strip()
+        subtype = request.args.get('subtype', 'all').strip()
         reviewed_filter = request.args.get('reviewed_filter', 'unreviewed').strip()
         start_date = request.args.get('start_date', '').strip()
         end_date = request.args.get('end_date', '').strip()
@@ -354,7 +358,7 @@ def get_transactions():
         amount_filter = request.args.get('amount', '').strip()
         assignment = request.args.get('assignment', 'all').strip()
         
-        result = fetch_paginated_transactions(page, limit, query, direction, category, reviewed_filter, start_date, end_date, account, amount_filter, assignment)
+        result = fetch_paginated_transactions(page, limit, query, direction, category, subtype, reviewed_filter, start_date, end_date, account, amount_filter, assignment)
         duration = (time.perf_counter() - start) * 1000
         print(f" * [/api/transactions] Fetch took {duration:.2f}ms")
         return jsonify(result)
@@ -1173,6 +1177,19 @@ def get_categories():
         for category in cats:
             deduped.setdefault(str(category).lower(), category)
         return jsonify(sorted(deduped.values(), key=lambda category: category.lower()))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@transactions_bp.route('/api/category_options', methods=['GET'])
+def get_category_options():
+    try:
+        config = load_categories_config_from_db()
+        categories = config.get('categories', [])
+        rules = config.get('rules', {})
+        return jsonify({
+            "categories": categories,
+            "subcategories": {category: rules.get(category, []) for category in categories},
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
