@@ -236,6 +236,16 @@ export function getMultiselectValues(containerId) {
     return checked.join(",");
 }
 
+export function setMultiselectValues(containerId, values) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const selected = new Set(values || []);
+    container.querySelectorAll(".multiselect-options input[type='checkbox']").forEach(checkbox => {
+        checkbox.checked = selected.has(checkbox.value);
+    });
+    updateButtonText(container);
+}
+
 function updateButtonText(container) {
     if (!container) return;
     const btnSpan = container.querySelector(".multiselect-btn span");

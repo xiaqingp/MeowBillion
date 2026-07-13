@@ -84,7 +84,8 @@ import {
     initCustomMultiselects,
     populateCategoryMultiselectOptions,
     populateStatusMultiselectOptions,
-    getMultiselectValues
+    getMultiselectValues,
+    setMultiselectValues
 } from './modules/utils.js';
 
 // DOM READY Check
@@ -159,6 +160,7 @@ async function initApp() {
     // 1. Setup static UI events and elements early so page is instantly responsive
     setupRouting();
     setupFilters();
+    setupSpendingDrilldown();
     setupSidebarCollapser();
 
     // Show initial loading spinner in table
@@ -1509,11 +1511,14 @@ export async function renderMonthlyAnalysis() {
         const monthlyChartRows = filterMonthlyRowsByRange(months, monthlyCashFlowRange);
         const yearly = data.yearly || [];
         const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+        const drilldownCell = (amount, period, category) => amount ? `
+            <button type="button" class="analysis-drilldown" data-drilldown-period="${escapeHtml(period)}" data-drilldown-category="${escapeHtml(category)}" title="View matching transactions">${money.format(amount)}</button>
+        ` : "";
 
         tbody.innerHTML = months.slice().reverse().map(row => `
             <tr>
                 <td>${escapeHtml(row.month)}</td>
-                <td>${money.format(row.income || 0)}</td>
+                <td>${drilldownCell(row.income || 0, row.month, "Income")}</td>
                 <td>${money.format(row.expense || 0)}</td>
                 <td>${money.format(row.expense_ex_mortgage || 0)}</td>
                 <td class="${(row.net_savings || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(row.net_savings || 0)}</td>
@@ -1537,7 +1542,7 @@ export async function renderMonthlyAnalysis() {
                     <td>${escapeHtml(row.month)}</td>
                     ${categoryOrder.map(category => {
                         const amount = (row.categories || {})[category] || 0;
-                        return `<td>${amount ? money.format(amount) : ""}</td>`;
+                        return `<td>${drilldownCell(amount, row.month, category)}</td>`;
                     }).join("")}
                 </tr>
             `).join("");
@@ -1548,7 +1553,7 @@ export async function renderMonthlyAnalysis() {
             yearlyBody.innerHTML = yearly.slice().reverse().map(row => `
                 <tr>
                     <td>${escapeHtml(row.year)}</td>
-                    <td>${money.format(row.income || 0)}</td>
+                    <td>${drilldownCell(row.income || 0, row.year, "Income")}</td>
                     <td>${money.format(row.expense || 0)}</td>
                     <td>${money.format(row.expense_ex_mortgage || 0)}</td>
                     <td class="${(row.net_savings || 0) >= 0 ? 'amount-income' : 'amount-expense'}">${money.format(row.net_savings || 0)}</td>
@@ -1573,7 +1578,7 @@ export async function renderMonthlyAnalysis() {
                     <td>${escapeHtml(row.year)}</td>
                     ${yearlyCategoryOrder.map(category => {
                         const amount = (row.categories || {})[category] || 0;
-                        return `<td>${amount ? money.format(amount) : ""}</td>`;
+                        return `<td>${drilldownCell(amount, row.year, category)}</td>`;
                     }).join("")}
                 </tr>
             `).join("");
@@ -2655,6 +2660,45 @@ function setupFilters() {
             }
         };
     }
+}
+
+function setupSpendingDrilldown() {
+    const spendingView = document.getElementById("view-monthly-analysis");
+    if (!spendingView) return;
+    spendingView.addEventListener("click", event => {
+        const cell = event.target.closest("button[data-drilldown-period][data-drilldown-category]");
+        if (!cell) return;
+
+        drillDownToTransactions(cell.dataset.drilldownPeriod || "", cell.dataset.drilldownCategory || "");
+    });
+}
+
+function drillDownToTransactions(period, category) {
+    const monthInput = document.getElementById("tx-month-filter");
+    const startDateInput = document.getElementById("tx-start-date");
+    const endDateInput = document.getElementById("tx-end-date");
+    const searchInput = document.getElementById("tx-search-input");
+    const accountSelect = document.getElementById("tx-account-filter");
+    const assignmentSelect = document.getElementById("tx-assignment-filter");
+    const amountInput = document.getElementById("tx-amount-filter");
+    const isMonth = /^\d{4}-\d{2}$/.test(period);
+
+    if (monthInput) monthInput.value = isMonth ? period : "";
+    if (startDateInput) startDateInput.value = isMonth ? `${period}-01` : `${period}-01-01`;
+    if (endDateInput) endDateInput.value = isMonth ? getMonthDateRange(period).end : `${period}-12-31`;
+    if (searchInput) searchInput.value = "";
+    if (accountSelect) accountSelect.value = "all";
+    if (assignmentSelect) assignmentSelect.value = "all";
+    if (amountInput) amountInput.value = "";
+    setMultiselectValues("filter-category-container", [category]);
+    const postedStatuses = Array.from(document.querySelectorAll("#reviewed-options-list input"))
+        .map(input => input.value)
+        .filter(value => value !== "pending");
+    setMultiselectValues("filter-reviewed-container", postedStatuses);
+
+    if (window.location.hash !== "#transactions") window.location.hash = "transactions";
+    else switchView("transactions");
+    triggerFilterUpdate();
 }
 
 function setupSidebarCollapser() {

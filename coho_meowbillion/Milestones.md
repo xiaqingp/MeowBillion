@@ -61,6 +61,7 @@
 | T2 | Add Trip/Property transaction filter | Done | `tests/test_transaction_assignment.py` | Passed previously |
 | T3 | Compact transaction filter UI | Done | Manual static load check | Passed previously |
 | T4 | Continue improving prediction accuracy | Not started | Add classifier/regression tests per bug | Pending |
+| T5 | Add Spending report transaction drill-down | Done | `tests/test_spending_drilldown_ui.py`; JS syntax check | Passed 2026-07-12 |
 
 #### Delivery Notes
 

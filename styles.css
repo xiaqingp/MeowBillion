@@ -1085,6 +1085,26 @@ select:focus, input:focus, button:focus {
     text-transform: uppercase;
 }
 
+.analysis-drilldown {
+    appearance: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 3px;
+}
+
+.analysis-drilldown:hover,
+.analysis-drilldown:focus-visible {
+    color: var(--color-primary);
+    text-decoration-color: currentColor;
+    outline: none;
+}
+
 .analysis-breakdown {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
