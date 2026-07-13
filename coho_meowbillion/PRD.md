@@ -5,7 +5,7 @@
 - Project: MeowBillion
 - Owner: surreal
 - Approval: Approved as current baseline
-- Last updated: 2026-07-09
+- Last updated: 2026-07-13
 
 ## Summary
 
@@ -56,6 +56,8 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Transactions can be filtered by search, date/month, account, amount, category, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
+- Plaid investment income imports into Transactions for `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend` only; other investment activity remains excluded.
+- Imported investment income maps to `Income / Interest` or `Income / Dividend`, remains unreviewed, and preserves the original Plaid subtype for future analysis.
 - Travel transactions can link to `trips.id` through `transactions.trip_id`.
 - Rental transactions can link to `rental_properties.id` through `transactions.rental_property_id`.
 - Trip Manager, Rental Property Manager, and Rental Rule Manager support inline table editing.
@@ -106,6 +108,7 @@ No external market scan was run during this baseline creation. Current baseline 
 | Structured Trips/Rentals metadata | Notes are free text and should not be the source of truth for grouping | 2026-07-09 |
 | Reviewed transaction lock | Reviewed data should not change unless explicitly de-reviewed | 2026-07-09 |
 | Travel refunds net against spend | Inflow/refund travel transactions reduce trip spend | 2026-07-09 |
+| Import investment income only | Interest and dividend cash income belongs in reviewable Transactions; buys, sells, transfers, fees, and reinvestments do not belong in ordinary cash-flow review | 2026-07-13 |
 
 ## Open Questions
 

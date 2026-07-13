@@ -4,7 +4,7 @@
 
 - Project: MeowBillion
 - Approval: Approved current baseline and forward milestone structure
-- Last updated: 2026-07-09
+- Last updated: 2026-07-13
 - Approved scope: Maintain current local-first app, fix bugs, improve UX, preserve tests, push every code change.
 
 ## Milestone Summary
@@ -63,6 +63,7 @@
 | T4 | Continue improving prediction accuracy | Not started | Add classifier/regression tests per bug | Pending |
 | T5 | Add Spending report transaction drill-down | Done | `tests/test_spending_drilldown_ui.py`; JS syntax check | Passed 2026-07-12 |
 | T6 | Add one-click Transaction filter reset | Done | `tests/test_transaction_filter_reset_ui.py`; JS syntax check | Passed 2026-07-12 |
+| T7 | Import approved Plaid interest/dividend investment transactions | Done | `tests/test_investment_income_sync.py`; full unittest suite | 61 tests passed 2026-07-13 |
 
 #### Delivery Notes
 
@@ -153,3 +154,4 @@
 | 2026-07-09 | Created baseline milestone structure | Coho start approved | M1/T1 |
 | 2026-07-09 | Added expandable account balance history to Account Allocation | User requested account-level history in Overview | M4/T4 |
 | 2026-07-10 | Added admin-controlled global daily sync time | User requested daily auto-sync at 16:00 with no-restart updates | M5/T4 |
+| 2026-07-13 | Added Plaid investment income import mapping | User approved five interest/dividend subtypes for the existing Transaction review flow | M2/T7 |

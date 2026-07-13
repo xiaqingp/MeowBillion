@@ -47,6 +47,13 @@ INVESTMENT_TYPES = {"investment", "brokerage"}
 INVESTMENT_SUBTYPES = {"brokerage", "401k", "ira", "roth", "mutual fund"}
 ALLOCATION_CACHE = {"time": 0.0, "payload": None, "user_id": None}
 ALLOCATION_CACHE_LOCK = threading.Lock()
+INVESTMENT_INCOME_SUBTYPE_MAP = {
+    "interest": "Interest",
+    "interest receivable": "Interest",
+    "dividend": "Dividend",
+    "qualified dividend": "Dividend",
+    "non-qualified dividend": "Dividend",
+}
 
 def lower_field(value):
     return (value or "").strip().lower()
@@ -693,6 +700,139 @@ def summarize_sync_results(succeeded_items, failed_items):
         return "failed"
     return "success"
 
+def get_investment_income_start_date(cursor, user_id, item_id, today):
+    key = f"{user_id}:{item_id}:investment_income_last_sync_date"
+    row = cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,)).fetchone()
+    if row:
+        import datetime
+        return today - datetime.timedelta(days=90)
+    return today.replace(month=1, day=1)
+
+def mark_investment_income_synced(cursor, user_id, item_id, today):
+    cursor.execute(
+        "INSERT OR REPLACE INTO sync_metadata (key, value) VALUES (?, ?)",
+        (f"{user_id}:{item_id}:investment_income_last_sync_date", today.isoformat()),
+    )
+
+def fetch_plaid_investment_transactions(client, access_token, start_date, end_date):
+    from plaid.model.investments_transactions_get_request import InvestmentsTransactionsGetRequest
+    from plaid.model.investments_transactions_get_request_options import InvestmentsTransactionsGetRequestOptions
+
+    rows = []
+    offset = 0
+    while True:
+        req = InvestmentsTransactionsGetRequest(
+            access_token=access_token,
+            start_date=start_date,
+            end_date=end_date,
+            options=InvestmentsTransactionsGetRequestOptions(count=500, offset=offset),
+        )
+        data = client.investments_transactions_get(req).to_dict()
+        batch = data.get("investment_transactions") or []
+        rows.extend(batch)
+        offset += len(batch)
+        if not batch or offset >= int(data.get("total_investment_transactions") or 0):
+            return rows
+
+def ensure_investment_income_categories(cursor, user_id):
+    key = f"{user_id}:categories_config"
+    row = cursor.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+    try:
+        config = json.loads(row["value"] if row else "{}")
+    except (TypeError, ValueError):
+        config = {}
+
+    categories = list(config.get("categories") or [])
+    categories = ["Income" if str(name).strip().lower() == "income" else name for name in categories]
+    if "Income" not in categories:
+        categories.append("Income")
+    categories.sort(key=lambda name: str(name).lower())
+
+    rules = dict(config.get("rules") or {})
+    income_key = next((name for name in rules if str(name).strip().lower() == "income"), "Income")
+    income_rules = list(rules.pop(income_key, []) or [])
+    for subtype in ("Dividend", "Interest"):
+        if subtype.lower() not in {str(value).strip().lower() for value in income_rules}:
+            income_rules.append(subtype)
+    rules["Income"] = sorted(income_rules, key=lambda name: str(name).lower())
+
+    config.update({"categories": categories, "rules": rules})
+    cursor.execute(
+        """
+        INSERT INTO app_config (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+        """,
+        (key, json.dumps(config, ensure_ascii=False)),
+    )
+
+def apply_plaid_investment_income_updates(cursor, user_id, investment_transactions):
+    approved = []
+    for tx in investment_transactions:
+        raw_subtype = str(tx.get("subtype") or "").strip().lower().replace("_", " ")
+        mapped_subtype = INVESTMENT_INCOME_SUBTYPE_MAP.get(raw_subtype)
+        if mapped_subtype and tx.get("investment_transaction_id"):
+            approved.append((tx, raw_subtype, mapped_subtype))
+    if not approved:
+        return 0
+
+    ensure_investment_income_categories(cursor, user_id)
+    new_count = 0
+    for tx, raw_subtype, mapped_subtype in approved:
+        tx_id = tx["investment_transaction_id"]
+        tx_date = tx.get("date")
+        date_str = tx_date.isoformat() if hasattr(tx_date, "isoformat") else str(tx_date)
+        signed_amount = float(tx.get("amount") or 0.0)
+        amount = abs(signed_amount)
+        direction = "inflow" if signed_amount < 0 else "outflow"
+        ipay = amount if direction == "inflow" else -amount
+        merchant = tx.get("name") or raw_subtype.title()
+        categories = json.dumps(["Investment Income", raw_subtype])
+        existing = cursor.execute(
+            "SELECT reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
+            (tx_id, user_id),
+        ).fetchone()
+
+        if existing:
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET date = ?, merchant = ?, amount = ?, direction = ?, categories = ?,
+                    payment_channel = 'investment', account_name = ?
+                WHERE transaction_id = ? AND user_id = ?
+                """,
+                (date_str, merchant, amount, direction, categories, tx.get("account_id"), tx_id, user_id),
+            )
+            if int(existing["reviewed"] or 0) == 0:
+                cursor.execute(
+                    """
+                    UPDATE transactions
+                    SET type = 'Income', subtype = ?, ipay = ?, prediction_source = 'plaid_investment',
+                        prediction_confidence = 1.0, prediction_reason = ?
+                    WHERE transaction_id = ? AND user_id = ? AND reviewed = 0
+                    """,
+                    (mapped_subtype, ipay, f"Plaid investment subtype: {raw_subtype}", tx_id, user_id),
+                )
+            continue
+
+        cursor.execute(
+            """
+            INSERT INTO transactions
+            (transaction_id, date, authorized_date, type, merchant, amount, direction, pending,
+             categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown,
+             note, subtype, trip_id, rental_property_id, reviewed, prediction_source,
+             prediction_confidence, prediction_reason, user_id)
+            VALUES (?, ?, NULL, 'Income', ?, ?, ?, 0, ?, '{}', 'investment', ?, 'n', 1.0,
+                    ?, 0.0, 0.0, '', ?, NULL, NULL, 0, 'plaid_investment', 1.0, ?, ?)
+            """,
+            (
+                tx_id, date_str, merchant, amount, direction, categories, tx.get("account_id"),
+                ipay, mapped_subtype, f"Plaid investment subtype: {raw_subtype}", user_id,
+            ),
+        )
+        new_count += 1
+    return new_count
+
 def fetch_plaid_transaction_updates(client, access_token, cursor_val):
     if cursor_val:
         sync_req = TransactionsSyncRequest(access_token=access_token, cursor=cursor_val)
@@ -1038,6 +1178,25 @@ def perform_sync(user_id=None):
                 "UPDATE plaid_tokens SET last_cursor = ? WHERE access_token = ? AND user_id = ?",
                 (cursor_val, access_token, user_id)
             )
+
+            if any(is_investment_like_account(acc) for acc in balance_data.get('accounts', [])):
+                try:
+                    investment_start = get_investment_income_start_date(cursor, user_id, item_id, dt_date.today())
+                    investment_rows = fetch_plaid_investment_transactions(
+                        client, access_token, investment_start, dt_date.today()
+                    )
+                    investment_count = apply_plaid_investment_income_updates(
+                        cursor, user_id, investment_rows
+                    )
+                    mark_investment_income_synced(cursor, user_id, item_id, dt_date.today())
+                    new_tx_count += investment_count
+                    item_new_count += investment_count
+                except Exception as investment_err:
+                    warnings.append({
+                        "scope": "investment_transactions",
+                        "message": f"Investment income sync failed, but regular transactions synced: {investment_err}"
+                    })
+
             succeeded_items.append({
                 "item_id": item_id,
                 "institution_name": inst_name,

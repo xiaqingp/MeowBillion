@@ -4,8 +4,8 @@
 
 - Project: MeowBillion
 - Approval: Approved as current baseline
-- Last updated: 2026-07-09
-- Based on PRD version/date: PRD.md 2026-07-09
+- Last updated: 2026-07-13
+- Based on PRD version/date: PRD.md 2026-07-13
 
 ## Overview
 
@@ -97,6 +97,8 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 - Invalid Trip/Property IDs return not found.
 - Plaid errors are surfaced in Plaid Settings and connection health.
 - Sync should preserve reviewed user fields and only update raw Plaid fields/predictions where allowed.
+- Investment Items also call Plaid Investments Transactions. The first successful import starts at January 1 of the current year; later imports use a rolling 90-day window recorded in `sync_metadata`.
+- Only the approved investment-income subtype whitelist is written to `transactions`; Plaid investment transaction IDs provide idempotency, and reviewed rows retain user review fields.
 
 ## Security and Privacy
 
@@ -143,6 +145,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 | Travel report uses signed net spend | Refunds should reduce travel spend | 2026-07-09 |
 | Account balance history expands inside Account Allocation | Keeps account-level history contextual and avoids another large Overview chart | 2026-07-09 |
 | Daily sync time is global and admin-controlled | One scheduler syncs all active users; polling the DB avoids restart after a time change | 2026-07-10 |
+| Investment income uses the existing transaction model | Avoids a second review/reporting system while keeping non-income investment activity out of spending data | 2026-07-13 |
 
 ## Open Questions
 

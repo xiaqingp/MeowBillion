@@ -55,3 +55,10 @@
 - Scope: All active users; only an active administrator may update it through `/api/sync_schedule`.
 - Source: M5/T4 implementation.
 - Usage: The scheduler reads the database every 30 seconds, so a saved setting applies without restarting the Flask server.
+
+## 2026-07-13 - Plaid investment income sync
+
+- Fact: Investment transaction import accepts only `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend`.
+- Scope: Investment-like Plaid Items and the existing Transaction review flow.
+- Source: User-approved mapping and `routes_plaid.py`.
+- Usage: Map to `Income / Interest` or `Income / Dividend`; first import starts January 1 of the current year, later imports look back 90 days, and reviewed rows remain protected.
