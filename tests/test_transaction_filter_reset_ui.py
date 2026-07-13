@@ -16,6 +16,15 @@ class TransactionFilterResetUiTests(unittest.TestCase):
         self.assertIn('setMultiselectValues("filter-reviewed-container"', app_js)
         self.assertIn('triggerFilterUpdate();', app_js)
 
+    def test_setup_filters_declares_reset_button_before_binding_it(self):
+        app_js = (ROOT / "app.js").read_text(encoding="utf-8")
+        setup_filters = app_js.split("function setupFilters()", 1)[1].split("function resetTransactionFilters()", 1)[0]
+
+        declaration = 'const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");'
+        binding = 'if (resetFiltersBtn) resetFiltersBtn.onclick = resetTransactionFilters;'
+        self.assertIn(declaration, setup_filters)
+        self.assertLess(setup_filters.index(declaration), setup_filters.index(binding))
+
 
 if __name__ == "__main__":
     unittest.main()

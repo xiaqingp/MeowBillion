@@ -2490,7 +2490,6 @@ export function triggerFilterUpdate() {
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
     const amountInput = document.getElementById("tx-amount-filter");
-    const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");
     state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
     state.currentFilters.category = getMultiselectValues("filter-category-container");
@@ -2595,6 +2594,7 @@ function setupFilters() {
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
     const amountInput = document.getElementById("tx-amount-filter");
+    const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");
     if (monthInput) {
         monthInput.onchange = () => {
             const { start, end } = getMonthDateRange(monthInput.value);
