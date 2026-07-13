@@ -2490,6 +2490,7 @@ export function triggerFilterUpdate() {
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
     const amountInput = document.getElementById("tx-amount-filter");
+    const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");
     state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
     state.currentFilters.category = getMultiselectValues("filter-category-container");
@@ -2617,6 +2618,7 @@ function setupFilters() {
     if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
     if (assignmentSelect) assignmentSelect.onchange = triggerFilterUpdate;
     if (amountInput) amountInput.oninput = debouncedFilterUpdate;
+    if (resetFiltersBtn) resetFiltersBtn.onclick = resetTransactionFilters;
     
     initCustomMultiselects(triggerFilterUpdate);
     
@@ -2660,6 +2662,24 @@ function setupFilters() {
             }
         };
     }
+}
+
+function resetTransactionFilters() {
+    const filterIds = ["tx-search-input", "tx-month-filter", "tx-start-date", "tx-end-date", "tx-amount-filter"];
+    filterIds.forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = "";
+    });
+    ["tx-account-filter", "tx-assignment-filter"].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) select.value = "all";
+    });
+    ["filter-category-container", "filter-reviewed-container"].forEach(containerId => {
+        const values = Array.from(document.querySelectorAll(`#${containerId} input[type='checkbox']`)).map(input => input.value);
+        setMultiselectValues(containerId, values);
+    });
+    document.querySelectorAll(".multiselect-dropdown").forEach(dropdown => dropdown.classList.remove("open"));
+    triggerFilterUpdate();
 }
 
 function setupSpendingDrilldown() {

@@ -53,7 +53,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Users can sign in, sign up, and maintain isolated user-scoped data.
 - Each user can store and manage Plaid credentials in-app.
 - Users can link, repair, reconnect, sync, and clean cached Plaid institutions.
-- Transactions can be filtered by search, date/month, account, amount, category, status, and Trip/Property assignment.
+- Transactions can be filtered by search, date/month, account, amount, category, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
 - Travel transactions can link to `trips.id` through `transactions.trip_id`.

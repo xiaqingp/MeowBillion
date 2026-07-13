@@ -62,6 +62,7 @@
 | T3 | Compact transaction filter UI | Done | Manual static load check | Passed previously |
 | T4 | Continue improving prediction accuracy | Not started | Add classifier/regression tests per bug | Pending |
 | T5 | Add Spending report transaction drill-down | Done | `tests/test_spending_drilldown_ui.py`; JS syntax check | Passed 2026-07-12 |
+| T6 | Add one-click Transaction filter reset | Done | `tests/test_transaction_filter_reset_ui.py`; JS syntax check | Passed 2026-07-12 |
 
 #### Delivery Notes
 

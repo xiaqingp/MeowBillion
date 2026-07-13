@@ -861,6 +861,31 @@ select:focus, input:focus, button:focus {
     height: 36px;
 }
 
+.filter-reset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--bg-main);
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.filter-reset-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.filter-reset-btn i {
+    width: 14px;
+    height: 14px;
+}
+
 .date-filter-pair {
     display: grid;
     grid-template-columns: 104px 118px 118px;
