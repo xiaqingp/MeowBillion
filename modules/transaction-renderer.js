@@ -262,7 +262,7 @@ export function renderTransactionsList() {
             if (t.Type === "Internal Transfer") {
                 actionButtonHtml = `<button class="btn-action-inline btn-reviewed-inline" style="background-color: #ecfdf5; color: #10b981; border-color: #10b981;" onclick="toggleTransactionConfirm('${t.TransactionID}', event)"><i data-lucide="check" style="width:12px;height:12px;"></i> Transfer</button>`;
             } else if (t.ImportedFromLegacy === 1 && t.LegacyMatched === 1) {
-                actionButtonHtml = `<button class="btn-action-inline btn-reviewed-inline" style="background-color: var(--color-primary-glow, #eff6ff); color: var(--color-primary, #3b82f6); border-color: var(--color-primary, #3b82f6);" onclick="toggleTransactionConfirm('${t.TransactionID}', event)"><i data-lucide="link" style="width:12px;height:12px;"></i> Legacy matched</button>`;
+                actionButtonHtml = `<button class="btn-action-inline btn-reviewed-inline" style="background-color: var(--color-primary-glow, #E8F9F8); color: var(--color-primary-ink, #066F6C); border-color: var(--color-primary, #0ABAB5);" onclick="toggleTransactionConfirm('${t.TransactionID}', event)"><i data-lucide="link" style="width:12px;height:12px;"></i> Legacy matched</button>`;
             } else if (t.ImportedFromLegacy === 1 && t.LegacyMatched === 0) {
                 actionButtonHtml = `<button class="btn-action-inline btn-reviewed-inline" style="background-color: #faf5ff; color: #a855f7; border-color: #a855f7;" onclick="toggleTransactionConfirm('${t.TransactionID}', event)"><i data-lucide="archive" style="width:12px;height:12px;"></i> Legacy imported</button>`;
             } else if (t.ImportedFromLegacy === 0 && t.AccountName === 'Legacy') {
@@ -312,7 +312,7 @@ export function renderTransactionsList() {
         } else if (t.Reviewed === 0) {
             statusBadgeHtml = `<span style="background-color: var(--color-warning-glow, #fffbeb); color: var(--color-warning, #d97706); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Needs review</span>`;
         } else if (t.ImportedFromLegacy === 1 && t.LegacyMatched === 1) {
-            statusBadgeHtml = `<span style="background-color: var(--color-primary-glow, #eff6ff); color: var(--color-primary, #3b82f6); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Legacy matched</span>`;
+            statusBadgeHtml = `<span style="background-color: var(--color-primary-glow, #E8F9F8); color: var(--color-primary-ink, #066F6C); font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Legacy matched</span>`;
         } else if (t.ImportedFromLegacy === 1 && t.LegacyMatched === 0) {
             statusBadgeHtml = `<span style="background-color: #faf5ff; color: #a855f7; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Legacy imported</span>`;
         } else if (t.AccountName === 'Legacy') {

@@ -88,6 +88,19 @@ import {
     setMultiselectValues
 } from './modules/utils.js';
 
+const CHART_COLORS = Object.freeze({
+    brand: "#078F8B",
+    brandFill: "rgba(10, 186, 181, 0.08)",
+    allocation: Object.freeze({
+        Cash: "#238F9D",
+        Stock: "#4A9B78",
+        Bond: "#C89A43",
+        "Real Estate": "#8875A8"
+    }),
+    chartText: "#697A82",
+    chartGrid: "rgba(105, 122, 130, 0.12)"
+});
+
 let transactionFilterStorageKey = "";
 
 // DOM READY Check
@@ -1189,13 +1202,13 @@ export async function renderBalanceTrendChart() {
         const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" });
         const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
         const netWorthConfig = [
-            { key: "Net Worth", label: "Net Worth", color: "#10b981", fill: true, width: 3 }
+            { key: "Net Worth", label: "Net Worth", color: CHART_COLORS.brand, fill: true, width: 3 }
         ];
         const allocationConfig = [
-            { key: "Cash", label: "Cash", color: "#3b82f6" },
-            { key: "Stock", label: "Stock", color: "#22c55e" },
-            { key: "Bond", label: "Bond", color: "#f59e0b" },
-            { key: "Real Estate", label: "Real Estate", color: "#8b5cf6" }
+            { key: "Cash", label: "Cash", color: CHART_COLORS.allocation.Cash },
+            { key: "Stock", label: "Stock", color: CHART_COLORS.allocation.Stock },
+            { key: "Bond", label: "Bond", color: CHART_COLORS.allocation.Bond },
+            { key: "Real Estate", label: "Real Estate", color: CHART_COLORS.allocation["Real Estate"] }
         ];
         const makeDatasets = (trendConfig) => trendConfig.map(cfg => ({
             label: cfg.label,
@@ -1206,7 +1219,7 @@ export async function renderBalanceTrendChart() {
             })),
             allocationColor: cfg.color,
             borderColor: cfg.color,
-            backgroundColor: cfg.fill ? "rgba(16, 185, 129, 0.08)" : "transparent",
+            backgroundColor: cfg.fill ? CHART_COLORS.brandFill : "transparent",
             fill: !!cfg.fill,
             tension: 0.3,
             borderWidth: cfg.width || 2,
@@ -1247,7 +1260,7 @@ export async function renderBalanceTrendChart() {
                     legend: {
                         position: 'top',
                         labels: {
-                            color: '#e2e8f0',
+                            color: CHART_COLORS.chartText,
                             font: { family: 'Inter' }
                         }
                     },
@@ -1269,9 +1282,9 @@ export async function renderBalanceTrendChart() {
                 scales: {
                     x: {
                         type: 'linear',
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        grid: { color: CHART_COLORS.chartGrid },
                         ticks: {
-                            color: '#94a3b8',
+                            color: CHART_COLORS.chartText,
                             maxTicksLimit: 7,
                             callback: function(value) {
                                 return dateFormatter.format(new Date(value));
@@ -1280,9 +1293,9 @@ export async function renderBalanceTrendChart() {
                     },
                     y: {
                         type: 'linear',
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        grid: { color: CHART_COLORS.chartGrid },
                         ticks: {
-                            color: '#94a3b8',
+                            color: CHART_COLORS.chartText,
                             maxTicksLimit: 6,
                             callback: function(value) {
                                 return currencyFormatter.format(value);
@@ -1429,10 +1442,10 @@ export async function renderAssetAllocationChart() {
         const colors = [];
         
         const categoryConfig = [
-            { key: "Cash", label: "Cash", color: "#3b82f6" },
-            { key: "Stock", label: "Stock", color: "#10b981" },
-            { key: "Bond", label: "Bond", color: "#f59e0b" },
-            { key: "Real Estate", label: "Real Estate", color: "#8b5cf6" }
+            { key: "Cash", label: "Cash", color: CHART_COLORS.allocation.Cash },
+            { key: "Stock", label: "Stock", color: CHART_COLORS.allocation.Stock },
+            { key: "Bond", label: "Bond", color: CHART_COLORS.allocation.Bond },
+            { key: "Real Estate", label: "Real Estate", color: CHART_COLORS.allocation["Real Estate"] }
         ];
         
         categoryConfig.forEach(cat => {
@@ -1477,7 +1490,7 @@ export async function renderAssetAllocationChart() {
                     legend: {
                         position: 'bottom',
                         labels: {
-                            color: '#e2e8f0',
+                            color: CHART_COLORS.chartText,
                             font: { family: 'Inter', size: 10 },
                             boxWidth: 12
                         }

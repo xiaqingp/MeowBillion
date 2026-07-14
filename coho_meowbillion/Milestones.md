@@ -122,7 +122,7 @@
 | T2 | Keep allocation defaults and manual overrides understandable | In progress | Allocation tests and DB spot checks | Ongoing |
 | T3 | Investigate institution-specific holdings gaps | In progress | Plaid status and DB holdings inspection | Ongoing |
 | T4 | Add expandable account balance history in Account Allocation | Done | `tests/test_account_balance_history.py`; full unittest suite; static load check | Passed 2026-07-09 |
-| T5 | Apply approved balanced Tiffany web theme and coordinated allocation palette | Planned | Static theme regression test; JS syntax check; full unittest suite; desktop/iPad visual checks | Pending design-spec review |
+| T5 | Apply approved balanced Tiffany web theme and coordinated allocation palette | Done | `tests/test_tiffany_theme.py`; JS syntax checks; full unittest suite; desktop/iPad visual checks | 72 tests passed 2026-07-13; 1440x900 and 1024x768 auth surfaces verified; authenticated Overview follows approved mock and static chart contract |
 
 #### Delivery Notes
 
@@ -165,3 +165,4 @@
 | 2026-07-13 | Added Income subcategory drill-down | User requested each Income table cell to open matching Transactions | M2/T11 |
 | 2026-07-13 | Unified web and mobile logo colors | User approved Tiffany background and white cat outline across web surfaces | M1/T3 |
 | 2026-07-13 | Approved balanced Tiffany web theme | User selected the balanced brand treatment and coordinated allocation palette in visual mockups | M4/T5 |
+| 2026-07-13 | Applied balanced Tiffany web theme | Replaced Indigo brand styling, unified Overview chart colors, and bumped web version to v0.1.23 | M4/T5 |

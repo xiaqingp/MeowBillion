@@ -1,18 +1,20 @@
 /* CSS VARIABLES & DESIGN TOKENS */
 :root {
-    --bg-main: #f4f6fb;
+    --bg-main: #f4f7f8;
     --bg-card: #ffffff;
-    --bg-card-hover: #f0f4ff;
+    --bg-card-hover: #f4fbfa;
     --bg-sidebar: #ffffff;
-    --border-color: #e2e8f0;
-    --border-color-hover: #cbd5e1;
+    --border-color: #dce5e7;
+    --border-color-hover: #c4d5d8;
     
-    --text-primary: #1e293b;
-    --text-secondary: #64748b;
-    --text-muted: #94a3b8;
+    --text-primary: #17262d;
+    --text-secondary: #52666f;
+    --text-muted: #697a82;
     
-    --color-primary: #6366f1; /* Indigo */
-    --color-primary-glow: rgba(99, 102, 241, 0.08);
+    --color-primary: #0ABAB5;
+    --color-primary-hover: #078F8B;
+    --color-primary-ink: #066F6C;
+    --color-primary-glow: #E8F9F8;
     --color-success: #10b981; /* Emerald */
     --color-success-glow: rgba(16, 185, 129, 0.08);
     --color-danger: #f43f5e; /* Rose */
@@ -118,6 +120,11 @@ select:focus, input:focus, button:focus {
     outline: none;
 }
 
+select:focus-visible, input:focus-visible, button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
 /* APP LAYOUT */
 .app-container {
     display: flex;
@@ -168,9 +175,7 @@ select:focus, input:focus, button:focus {
     font-family: var(--font-display);
     font-size: 18px;
     font-weight: 700;
-    background: linear-gradient(to right, #6366f1, #a855f7);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-primary);
 }
 
 .nav-menu {
@@ -214,8 +219,9 @@ select:focus, input:focus, button:focus {
 
 .nav-btn.active {
     background: var(--color-primary-glow);
-    color: var(--color-primary);
+    color: var(--color-primary-ink);
     font-weight: 600;
+    box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .nav-btn.active i {
@@ -329,7 +335,7 @@ select:focus, input:focus, button:focus {
 }
 
 .sync-btn {
-    background: linear-gradient(135deg, var(--color-primary), #4f46e5);
+    background: var(--color-primary);
     color: white;
     padding: 10px 18px;
     border-radius: 8px;
@@ -339,13 +345,14 @@ select:focus, input:focus, button:focus {
     display: flex;
     align-items: center;
     gap: 8px;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    box-shadow: 0 4px 12px rgba(10, 186, 181, 0.2);
     transition: var(--transition-smooth);
 }
 
 .sync-btn:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+    background: var(--color-primary-hover);
+    box-shadow: 0 6px 16px rgba(10, 186, 181, 0.3);
 }
 
 .sync-btn:disabled {
