@@ -77,6 +77,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Manager pages should favor editable tables over separate add/list forms.
 - iPad/Tailscale usage must be practical through `HOST=0.0.0.0` on port `8090`.
 - Web and mobile use the same Tiffany `#0ABAB5` logo background with a white cat outline.
+- The web UI uses a balanced Tiffany theme: Tiffany identifies brand and interaction states, while financial categories and status semantics retain distinct coordinated colors.
 
 ### Data Requirements
 
@@ -114,6 +115,7 @@ No external market scan was run during this baseline creation. Current baseline 
 | Travel refunds net against spend | Inflow/refund travel transactions reduce trip spend | 2026-07-09 |
 | Import investment income only | Interest and dividend cash income belongs in reviewable Transactions; buys, sells, transfers, fees, and reinvestments do not belong in ordinary cash-flow review | 2026-07-13 |
 | Tiffany logo across web and mobile | Keeps the in-app mark and browser favicon visually consistent with the mobile brand | 2026-07-13 |
+| Balanced Tiffany web theme | Extends the brand beyond the logo without reducing chart readability or semantic color meaning | 2026-07-13 |
 
 ## Open Questions
 

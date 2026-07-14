@@ -28,6 +28,13 @@ The design favors local-first storage, user-scoped rows, explicit review workflo
 - `modules/state.js`: frontend state.
 - `modules/transaction-renderer.js`: transaction table rendering and row actions.
 
+### Web Theme Contract
+
+- `styles.css` owns the brand and surface tokens. Tiffany `#0ABAB5` is the primary interaction color, with darker and pale variants for hover, text, focus, and selected states.
+- `app.js` owns one shared chart color map. Net Worth uses deep Tiffany; Allocation uses Cash `#238F9D`, Stock `#4A9B78`, Bond `#C89A43`, and Real Estate `#8875A8`.
+- Status colors remain semantic: success/income, danger/expense, warning/pending, and informational states are not collapsed into the brand color.
+- Theme changes do not alter layout, data, APIs, or responsive breakpoints.
+
 ## Data Model
 
 Key tables:
@@ -147,6 +154,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 | Account balance history expands inside Account Allocation | Keeps account-level history contextual and avoids another large Overview chart | 2026-07-09 |
 | Daily sync time is global and admin-controlled | One scheduler syncs all active users; polling the DB avoids restart after a time change | 2026-07-10 |
 | Investment income uses the existing transaction model | Avoids a second review/reporting system while keeping non-income investment activity out of spending data | 2026-07-13 |
+| Tiffany is a balanced interaction theme | Keeps the product recognizable while preserving distinct financial series and operational status colors | 2026-07-13 |
 
 ## Open Questions
 

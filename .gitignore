@@ -35,6 +35,7 @@ Thumbs.db
 
 # Antigravity/Codex local metadata
 .agents/
+.superpowers/
 
 # Mobile build evidence and transfer cache
 mobile/artifacts/
