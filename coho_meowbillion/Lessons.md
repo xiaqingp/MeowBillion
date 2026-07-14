@@ -23,3 +23,11 @@
 - Fix: Disable assignment controls for reviewed transactions and reject assignment-only updates server-side.
 - Prevention: Any new editable transaction field must explicitly decide how reviewed lock applies.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md
+
+## 2026-07-13 - Transaction review scroll position
+
+- Issue: Reviewing a transaction refreshed the Transactions page at the top.
+- Cause: Scroll preservation captured `.main-content`, which is non-scrolling, while `.viewport` owns vertical scrolling.
+- Fix: Capture and restore the `.viewport` scroll position during data refresh.
+- Prevention: Scroll-state helpers must target the element whose CSS owns `overflow-y: auto`.
+- Affected docs: Milestones.md, Lessons.md

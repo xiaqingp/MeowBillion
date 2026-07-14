@@ -118,7 +118,7 @@ function debounce(fn, delay = 300) {
 
 function getScrollSnapshot(selector) {
     const selected = selector ? document.querySelector(selector) : null;
-    const el = selected || document.querySelector(".main-content") || document.scrollingElement || document.documentElement;
+    const el = selected || document.querySelector(".viewport") || document.scrollingElement || document.documentElement;
     const isWindowScroll = el === document.scrollingElement || el === document.documentElement || el === document.body;
     return {
         el,

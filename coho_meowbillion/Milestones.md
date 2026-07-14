@@ -64,6 +64,7 @@
 | T5 | Add Spending report transaction drill-down | Done | `tests/test_spending_drilldown_ui.py`; JS syntax check | Passed 2026-07-12 |
 | T6 | Add one-click Transaction filter reset | Done | `tests/test_transaction_filter_reset_ui.py`; JS syntax check | Passed 2026-07-12 |
 | T7 | Import approved Plaid interest/dividend investment transactions | Done | `tests/test_investment_income_sync.py`; full unittest suite | 61 tests passed 2026-07-13 |
+| T8 | Preserve Transaction scroll position after review refresh | Done | `tests/test_transaction_review_scroll_ui.py`; JS syntax check | Passed 2026-07-13 |
 
 #### Delivery Notes
 
