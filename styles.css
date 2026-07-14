@@ -157,7 +157,8 @@ select:focus, input:focus, button:focus {
     box-shadow: 0 4px 12px rgba(10, 186, 181, 0.24);
 }
 
-.logo-icon i {
+.logo-icon i,
+.logo-icon svg {
     width: 18px;
     height: 18px;
     color: white;
@@ -244,7 +245,8 @@ select:focus, input:focus, button:focus {
     flex: 0 0 auto;
 }
 
-.avatar i {
+.avatar i,
+.avatar svg {
     width: 16px;
     height: 16px;
     color: white;

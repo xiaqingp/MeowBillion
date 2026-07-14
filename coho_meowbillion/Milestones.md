@@ -36,7 +36,7 @@
 | --- | --- | --- | --- | --- |
 | T1 | Create Coho project directory and baseline docs | In progress | Review docs for consistency with README/current app | Pending user review |
 | T2 | Record reusable project facts | In progress | Confirm commands and constraints are captured | Pending user review |
-| T3 | Match web and mobile Tiffany logo colors | Done | `tests/test_brand_logo.py`; full unittest suite | 69 tests passed 2026-07-13 |
+| T3 | Match web and mobile Tiffany logo colors | Done | `tests/test_brand_logo.py`; full unittest suite | 69 tests passed 2026-07-13, including rendered Lucide SVG selectors |
 
 #### Delivery Notes
 

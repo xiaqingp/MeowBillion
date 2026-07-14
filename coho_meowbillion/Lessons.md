@@ -31,3 +31,11 @@
 - Fix: Capture and restore the `.viewport` scroll position during data refresh.
 - Prevention: Scroll-state helpers must target the element whose CSS owns `overflow-y: auto`.
 - Affected docs: Milestones.md, Lessons.md
+
+## 2026-07-13 - Lucide logo color after icon replacement
+
+- Issue: Web logo backgrounds were Tiffany, but the cat outlines rendered black.
+- Cause: CSS targeted the source `<i>` elements, while `lucide.createIcons()` replaces them with `<svg>` elements that no longer matched the white color rule.
+- Fix: Apply the logo size and color rules to both the source `<i>` and rendered `<svg>` elements.
+- Prevention: Tests for Lucide styling must cover the rendered SVG selector, not only the pre-render HTML element.
+- Affected docs: Lessons.md, Milestones.md

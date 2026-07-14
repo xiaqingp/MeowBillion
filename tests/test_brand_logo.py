@@ -14,6 +14,8 @@ class BrandLogoTests(unittest.TestCase):
         avatar_rule = css.split(".avatar {", 1)[1].split("}", 1)[0]
         self.assertIn("background: #0ABAB5;", logo_rule)
         self.assertIn("background: #0ABAB5;", avatar_rule)
+        self.assertIn(".logo-icon i,\n.logo-icon svg {", css)
+        self.assertIn(".avatar i,\n.avatar svg {", css)
         self.assertIn('fill="#0ABAB5"', favicon)
         self.assertIn('stroke="#fff"', favicon)
         self.assertNotIn("linearGradient", favicon)
