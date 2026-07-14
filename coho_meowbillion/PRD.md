@@ -76,6 +76,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Review controls must clearly distinguish pending, reviewed, unreviewed, manual, transfer, legacy matched, and legacy imported states.
 - Manager pages should favor editable tables over separate add/list forms.
 - iPad/Tailscale usage must be practical through `HOST=0.0.0.0` on port `8090`.
+- Web and mobile use the same Tiffany `#0ABAB5` logo background with a white cat outline.
 
 ### Data Requirements
 
@@ -112,6 +113,7 @@ No external market scan was run during this baseline creation. Current baseline 
 | Reviewed transaction lock | Reviewed data should not change unless explicitly de-reviewed | 2026-07-09 |
 | Travel refunds net against spend | Inflow/refund travel transactions reduce trip spend | 2026-07-09 |
 | Import investment income only | Interest and dividend cash income belongs in reviewable Transactions; buys, sells, transfers, fees, and reinvestments do not belong in ordinary cash-flow review | 2026-07-13 |
+| Tiffany logo across web and mobile | Keeps the in-app mark and browser favicon visually consistent with the mobile brand | 2026-07-13 |
 
 ## Open Questions
 

@@ -149,12 +149,12 @@ select:focus, input:focus, button:focus {
 .logo-icon {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, var(--color-primary), #a855f7);
+    background: #0ABAB5;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    box-shadow: 0 4px 12px rgba(10, 186, 181, 0.24);
 }
 
 .logo-icon i {
@@ -235,12 +235,12 @@ select:focus, input:focus, button:focus {
 .avatar {
     width: 32px;
     height: 32px;
-    background: linear-gradient(135deg, var(--color-primary), #a855f7);
+    background: #0ABAB5;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18);
+    box-shadow: 0 4px 12px rgba(10, 186, 181, 0.22);
     flex: 0 0 auto;
 }
 

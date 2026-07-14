@@ -36,6 +36,7 @@
 | --- | --- | --- | --- | --- |
 | T1 | Create Coho project directory and baseline docs | In progress | Review docs for consistency with README/current app | Pending user review |
 | T2 | Record reusable project facts | In progress | Confirm commands and constraints are captured | Pending user review |
+| T3 | Match web and mobile Tiffany logo colors | Done | `tests/test_brand_logo.py`; full unittest suite | 69 tests passed 2026-07-13 |
 
 #### Delivery Notes
 
@@ -161,3 +162,4 @@
 | 2026-07-13 | Added Plaid investment income import mapping | User approved five interest/dividend subtypes for the existing Transaction review flow | M2/T7 |
 | 2026-07-13 | Added monthly/yearly Income subcategory reporting | User requested Income subcategory tables on Spending | M2/T10 |
 | 2026-07-13 | Added Income subcategory drill-down | User requested each Income table cell to open matching Transactions | M2/T11 |
+| 2026-07-13 | Unified web and mobile logo colors | User approved Tiffany background and white cat outline across web surfaces | M1/T3 |
