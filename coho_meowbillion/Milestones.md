@@ -66,6 +66,7 @@
 | T7 | Import approved Plaid interest/dividend investment transactions | Done | `tests/test_investment_income_sync.py`; full unittest suite | 61 tests passed 2026-07-13 |
 | T8 | Preserve Transaction scroll position after review refresh | Done | `tests/test_transaction_review_scroll_ui.py`; JS syntax check | Passed 2026-07-13 |
 | T9 | Preserve user-scoped Transaction filters across page refresh | Done | `tests/test_transaction_filter_persistence_ui.py`; JS syntax check | Passed 2026-07-13 |
+| T10 | Add monthly/yearly Income subcategory tables to Spending | Done | `tests/test_spending_income_subcategories.py`; full unittest suite | 66 tests passed 2026-07-13 |
 
 #### Delivery Notes
 
@@ -157,3 +158,4 @@
 | 2026-07-09 | Added expandable account balance history to Account Allocation | User requested account-level history in Overview | M4/T4 |
 | 2026-07-10 | Added admin-controlled global daily sync time | User requested daily auto-sync at 16:00 with no-restart updates | M5/T4 |
 | 2026-07-13 | Added Plaid investment income import mapping | User approved five interest/dividend subtypes for the existing Transaction review flow | M2/T7 |
+| 2026-07-13 | Added monthly/yearly Income subcategory reporting | User requested Income subcategory tables on Spending | M2/T10 |

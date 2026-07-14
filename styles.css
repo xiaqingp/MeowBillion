@@ -955,6 +955,26 @@ select:focus, input:focus, button:focus {
     white-space: nowrap;
 }
 
+.income-subcategory-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 12px;
+}
+
+.income-subcategory-grid h4 {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+@media (max-width: 980px) {
+    .income-subcategory-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .monthly-category-table th:first-child,
 .monthly-category-table td:first-child {
     position: sticky;

@@ -66,7 +66,7 @@ Core APIs:
 - `POST /api/rental_property_match_rules/apply`
 - `GET /api/travel_analysis`
 - `GET /api/rental_analysis`
-- `GET /api/monthly_analysis`
+- `GET /api/monthly_analysis`: monthly/yearly cash flow, category spending, and aligned monthly/yearly Income subcategory matrices; pending transactions are excluded.
 - Spending report cells drill into the existing Transaction view by setting its date/category filters client-side; no duplicate reporting API is used.
 - `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.

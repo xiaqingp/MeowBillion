@@ -15,7 +15,7 @@
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
     <!-- Chart.js -->
     <script src="vendor/chart.umd.min.js?v=20260703212500"></script>
-    <link rel="stylesheet" href="styles.css?v=20260704010500">
+    <link rel="stylesheet" href="styles.css?v=20260713173100">
 </head>
 <body>
     <div class="auth-screen" id="auth-screen" style="display:none;">
@@ -89,7 +89,7 @@
                     <div class="user-info">
                         <span class="user-name" id="sidebar-user-name">MeowBillion</span>
                         <span class="user-role">Personal finance workspace</span>
-                        <span class="version-meta">v0.1.18 · Updated 2026-07-13 17:04</span>
+                        <span class="version-meta">v0.1.19 · Updated 2026-07-13 17:31</span>
                         <button class="footer-signout" id="signout-btn">Sign out</button>
                     </div>
                 </div>
@@ -254,6 +254,30 @@
                                 <thead id="yearly-category-thead"></thead>
                                 <tbody id="yearly-category-tbody"></tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-title-bar"><h3>Income by Subcategory</h3></div>
+                        <div class="income-subcategory-grid">
+                            <section>
+                                <h4>Monthly</h4>
+                                <div class="analysis-table-wrap analysis-table-wide">
+                                    <table class="analysis-table monthly-category-table">
+                                        <thead id="monthly-income-subcategory-thead"></thead>
+                                        <tbody id="monthly-income-subcategory-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                            <section>
+                                <h4>Yearly</h4>
+                                <div class="analysis-table-wrap analysis-table-wide">
+                                    <table class="analysis-table monthly-category-table">
+                                        <thead id="yearly-income-subcategory-thead"></thead>
+                                        <tbody id="yearly-income-subcategory-tbody"></tbody>
+                                    </table>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </section>
@@ -601,7 +625,7 @@
     </div>
 
     <!-- Application Script -->
-    <script type="module" src="app.js?v=20260713170400"></script>
+    <script type="module" src="app.js?v=20260713173100"></script>
 </body>
 </html>
 

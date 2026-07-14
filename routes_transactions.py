@@ -539,6 +539,22 @@ def monthly_analysis():
                 """,
                 (user_id, rental_category)
             ).fetchall()
+            income_subcategory_rows = conn.execute(
+                """
+                SELECT substr(date, 1, 7) AS month,
+                       COALESCE(NULLIF(TRIM(subtype), ''), 'Uncategorized') AS subcategory,
+                       SUM(COALESCE(ipay, 0)) AS amount
+                FROM transactions
+                WHERE user_id = ?
+                  AND date IS NOT NULL AND date != ''
+                  AND COALESCE(pending, 0) = 0
+                  AND lower(COALESCE(type, '')) = 'income'
+                GROUP BY substr(date, 1, 7), COALESCE(NULLIF(TRIM(subtype), ''), 'Uncategorized')
+                HAVING ABS(SUM(COALESCE(ipay, 0))) > 0.005
+                ORDER BY month ASC, lower(subcategory) ASC
+                """,
+                (user_id,)
+            ).fetchall()
 
         months = []
         totals = {"income": 0.0, "expense": 0.0, "living_expense": 0.0, "net_savings": 0.0}
@@ -620,6 +636,41 @@ def monthly_analysis():
             for row in yearly
         ]
 
+        income_subcategory_lookup = {}
+        income_subcategory_totals = {}
+        for row in income_subcategory_rows:
+            amount = float(row["amount"] or 0.0)
+            subcategory = row["subcategory"]
+            month_subcategories = income_subcategory_lookup.setdefault(row["month"], {})
+            month_subcategories[subcategory] = month_subcategories.get(subcategory, 0.0) + amount
+            income_subcategory_totals[subcategory] = income_subcategory_totals.get(subcategory, 0.0) + amount
+        income_subcategory_order = sorted(income_subcategory_totals, key=lambda name: name.lower())
+        income_subcategory_matrix = [
+            {
+                "month": row["month"],
+                "subcategories": {
+                    name: income_subcategory_lookup.get(row["month"], {}).get(name, 0.0)
+                    for name in income_subcategory_order
+                }
+            }
+            for row in months
+        ]
+        yearly_income_lookup = {}
+        for month, subcategories in income_subcategory_lookup.items():
+            year_subcategories = yearly_income_lookup.setdefault(month[:4], {})
+            for name, amount in subcategories.items():
+                year_subcategories[name] = year_subcategories.get(name, 0.0) + amount
+        yearly_income_subcategory_matrix = [
+            {
+                "year": row["year"],
+                "subcategories": {
+                    name: yearly_income_lookup.get(row["year"], {}).get(name, 0.0)
+                    for name in income_subcategory_order
+                }
+            }
+            for row in yearly
+        ]
+
         totals["savings_rate"] = totals["net_savings"] / totals["income"] if totals["income"] else 0.0
         recent = months[-12:]
         return jsonify({
@@ -633,7 +684,10 @@ def monthly_analysis():
             "category_matrix": category_matrix,
             "yearly_category_order": yearly_category_order,
             "yearly_category_totals": yearly_category_totals,
-            "yearly_category_matrix": yearly_category_matrix
+            "yearly_category_matrix": yearly_category_matrix,
+            "income_subcategory_order": income_subcategory_order,
+            "income_subcategory_matrix": income_subcategory_matrix,
+            "yearly_income_subcategory_matrix": yearly_income_subcategory_matrix
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

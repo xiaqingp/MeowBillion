@@ -1588,6 +1588,38 @@ export async function renderMonthlyAnalysis() {
             `).join("");
         }
 
+        const incomeSubcategoryOrder = data.income_subcategory_order || [];
+        const renderIncomeSubcategoryTable = (headId, bodyId, periodKey, rows) => {
+            const head = document.getElementById(headId);
+            const body = document.getElementById(bodyId);
+            if (!head || !body) return;
+            const label = periodKey === "month" ? "Month" : "Year";
+            head.innerHTML = `
+                <tr>
+                    <th>${label}</th>
+                    ${incomeSubcategoryOrder.map(name => `<th>${escapeHtml(name)}</th>`).join("")}
+                </tr>
+            `;
+            body.innerHTML = rows.slice().reverse().map(row => `
+                <tr>
+                    <td>${escapeHtml(row[periodKey])}</td>
+                    ${incomeSubcategoryOrder.map(name => `<td>${money.format((row.subcategories || {})[name] || 0)}</td>`).join("")}
+                </tr>
+            `).join("");
+        };
+        renderIncomeSubcategoryTable(
+            "monthly-income-subcategory-thead",
+            "monthly-income-subcategory-tbody",
+            "month",
+            data.income_subcategory_matrix || []
+        );
+        renderIncomeSubcategoryTable(
+            "yearly-income-subcategory-thead",
+            "yearly-income-subcategory-tbody",
+            "year",
+            data.yearly_income_subcategory_matrix || []
+        );
+
         if (monthlyAnalysisChartInstance) monthlyAnalysisChartInstance.destroy();
         monthlyAnalysisChartInstance = new Chart(canvas.getContext("2d"), {
             type: "bar",
