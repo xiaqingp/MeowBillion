@@ -1,5 +1,5 @@
 ﻿import { state } from './modules/state.js';
-import { 
+import {
     fetchCredentialsStatus, 
     fetchTransactions, 
     fetchAccountsApi, 
@@ -88,6 +88,8 @@ import {
     setMultiselectValues
 } from './modules/utils.js';
 
+let transactionFilterStorageKey = "";
+
 // DOM READY Check
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => initApp());
@@ -156,6 +158,7 @@ async function initApp() {
         return;
     }
     showApp(auth.user);
+    restoreTransactionFilters(auth.user);
 
     // 1. Setup static UI events and elements early so page is instantly responsive
     setupRouting();
@@ -202,6 +205,7 @@ async function initApp() {
         // 4. Update dropdown filter categories
         await updateCategoryFilterOptions();
         await updateTransactionFilterOptions();
+        applyTransactionFiltersToControls();
 
         // 5. Render dashboard and tables
         renderDashboard(state.accounts);
@@ -2485,6 +2489,7 @@ export async function clearAllocationOverride(accountId, event) {
 
 export function triggerFilterUpdate() {
     const searchInput = document.getElementById("tx-search-input");
+    const monthInput = document.getElementById("tx-month-filter");
     const startDateInput = document.getElementById("tx-start-date");
     const endDateInput = document.getElementById("tx-end-date");
     const accountSelect = document.getElementById("tx-account-filter");
@@ -2494,14 +2499,69 @@ export function triggerFilterUpdate() {
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
     state.currentFilters.category = getMultiselectValues("filter-category-container");
     state.currentFilters.reviewed = getMultiselectValues("filter-reviewed-container");
+    state.currentFilters.month = monthInput ? monthInput.value : "";
     state.currentFilters.startDate = startDateInput ? startDateInput.value : "";
     state.currentFilters.endDate = endDateInput ? endDateInput.value : "";
     state.currentFilters.account = accountSelect ? accountSelect.value : "all";
     state.currentFilters.assignment = assignmentSelect ? assignmentSelect.value : "all";
     state.currentFilters.amount = amountInput ? amountInput.value.trim() : "";
-    
+    persistTransactionFilters();
     state.currentPage = 1;
     loadData();
+}
+
+function restoreTransactionFilters(user) {
+    const userKey = user?.id || user?.email || "anonymous";
+    transactionFilterStorageKey = `meowbillion:transaction-filters:${userKey}`;
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(transactionFilterStorageKey) || "{}");
+        Object.keys(state.currentFilters).forEach(key => {
+            if (typeof saved[key] === "string") state.currentFilters[key] = saved[key];
+        });
+    } catch (e) {
+        console.warn("Could not restore transaction filters:", e);
+    }
+}
+
+function persistTransactionFilters() {
+    if (!transactionFilterStorageKey) return;
+    try {
+        sessionStorage.setItem(transactionFilterStorageKey, JSON.stringify(state.currentFilters));
+    } catch (e) {
+        console.warn("Could not save transaction filters:", e);
+    }
+}
+
+function applyTransactionFiltersToControls() {
+    const inputValues = {
+        "tx-search-input": state.currentFilters.search,
+        "tx-month-filter": state.currentFilters.month,
+        "tx-start-date": state.currentFilters.startDate,
+        "tx-end-date": state.currentFilters.endDate,
+        "tx-amount-filter": state.currentFilters.amount
+    };
+    Object.entries(inputValues).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input) input.value = value || "";
+    });
+
+    [["tx-account-filter", "account"], ["tx-assignment-filter", "assignment"]].forEach(([id, key]) => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const value = state.currentFilters[key] || "all";
+        select.value = Array.from(select.options).some(option => option.value === value) ? value : "all";
+        state.currentFilters[key] = select.value;
+    });
+
+    [
+        ["filter-direction-container", state.currentFilters.direction],
+        ["filter-category-container", state.currentFilters.category],
+        ["filter-reviewed-container", state.currentFilters.reviewed]
+    ].forEach(([containerId, value]) => {
+        const available = Array.from(document.querySelectorAll(`#${containerId} input[type='checkbox']`)).map(input => input.value);
+        const selected = value === "all" ? available : value === "none" ? [] : String(value || "").split(",");
+        setMultiselectValues(containerId, selected);
+    });
 }
 
 function getMonthDateRange(monthValue) {

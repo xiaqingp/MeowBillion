@@ -59,6 +59,7 @@ Core APIs:
 - `POST /api/update_transaction_assignment`: assignment-only update for unreviewed transactions.
 - `POST /api/unconfirm_transaction`: de-review transaction.
 - `GET /api/transaction_filter_options`: account, status, Trip, and Property filter options.
+- Transaction filter state is stored in user-scoped browser `sessionStorage`, restored before the initial transaction fetch, and then applied to controls after dynamic options load.
 - `GET/POST/PATCH/DELETE /api/trips`
 - `GET/POST/PATCH/DELETE /api/rental_properties`
 - `GET/POST/PATCH/DELETE /api/rental_property_match_rules`

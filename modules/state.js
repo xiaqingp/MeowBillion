@@ -12,6 +12,7 @@ export const state = {
         direction: "",
         category: "",
         reviewed: "all",
+        month: "",
         startDate: "",
         endDate: "",
         account: "all",

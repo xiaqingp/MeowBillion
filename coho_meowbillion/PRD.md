@@ -54,6 +54,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Each user can store and manage Plaid credentials in-app.
 - Users can link, repair, reconnect, sync, and clean cached Plaid institutions.
 - Transactions can be filtered by search, date/month, account, amount, category, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
+- Transaction filter selections survive a browser refresh within the current tab and remain isolated by user.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
 - Plaid investment income imports into Transactions for `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend` only; other investment activity remains excluded.
