@@ -1515,8 +1515,8 @@ export async function renderMonthlyAnalysis() {
         const monthlyChartRows = filterMonthlyRowsByRange(months, monthlyCashFlowRange);
         const yearly = data.yearly || [];
         const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-        const drilldownCell = (amount, period, category) => amount ? `
-            <button type="button" class="analysis-drilldown" data-drilldown-period="${escapeHtml(period)}" data-drilldown-category="${escapeHtml(category)}" title="View matching transactions">${money.format(amount)}</button>
+        const drilldownCell = (amount, period, category, subcategory = "") => amount ? `
+            <button type="button" class="analysis-drilldown" data-drilldown-period="${escapeHtml(period)}" data-drilldown-category="${escapeHtml(category)}"${subcategory ? ` data-drilldown-subcategory="${escapeHtml(subcategory)}"` : ""} title="View matching transactions">${money.format(amount)}</button>
         ` : "";
 
         tbody.innerHTML = months.slice().reverse().map(row => `
@@ -1603,7 +1603,10 @@ export async function renderMonthlyAnalysis() {
             body.innerHTML = rows.slice().reverse().map(row => `
                 <tr>
                     <td>${escapeHtml(row[periodKey])}</td>
-                    ${incomeSubcategoryOrder.map(name => `<td>${money.format((row.subcategories || {})[name] || 0)}</td>`).join("")}
+                    ${incomeSubcategoryOrder.map(name => {
+                        const amount = (row.subcategories || {})[name] || 0;
+                        return `<td>${drilldownCell(amount, row[periodKey], "Income", name)}</td>`;
+                    }).join("")}
                 </tr>
             `).join("");
         };
@@ -2526,6 +2529,7 @@ export function triggerFilterUpdate() {
     const endDateInput = document.getElementById("tx-end-date");
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
+    const subcategorySelect = document.getElementById("tx-subcategory-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
@@ -2536,6 +2540,7 @@ export function triggerFilterUpdate() {
     state.currentFilters.endDate = endDateInput ? endDateInput.value : "";
     state.currentFilters.account = accountSelect ? accountSelect.value : "all";
     state.currentFilters.assignment = assignmentSelect ? assignmentSelect.value : "all";
+    state.currentFilters.subcategory = subcategorySelect ? subcategorySelect.value : "all";
     state.currentFilters.amount = amountInput ? amountInput.value.trim() : "";
     persistTransactionFilters();
     state.currentPage = 1;
@@ -2577,7 +2582,7 @@ function applyTransactionFiltersToControls() {
         if (input) input.value = value || "";
     });
 
-    [["tx-account-filter", "account"], ["tx-assignment-filter", "assignment"]].forEach(([id, key]) => {
+    [["tx-account-filter", "account"], ["tx-assignment-filter", "assignment"], ["tx-subcategory-filter", "subcategory"]].forEach(([id, key]) => {
         const select = document.getElementById(id);
         if (!select) return;
         const value = state.currentFilters[key] || "all";
@@ -2633,6 +2638,7 @@ export async function updateTransactionFilterOptions() {
         const options = await fetchTransactionFilterOptionsApi();
         const accountSelect = document.getElementById("tx-account-filter");
         const assignmentSelect = document.getElementById("tx-assignment-filter");
+        const subcategorySelect = document.getElementById("tx-subcategory-filter");
         const monthInput = document.getElementById("tx-month-filter");
         const startDateInput = document.getElementById("tx-start-date");
         const endDateInput = document.getElementById("tx-end-date");
@@ -2669,6 +2675,15 @@ export async function updateTransactionFilterOptions() {
             addGroup("Trips", options.trips || [], "trip");
             addGroup("Rental properties", options.rental_properties || [], "rental");
         }
+        if (subcategorySelect) {
+            subcategorySelect.innerHTML = `<option value="all">All subcategories</option>`;
+            (options.subcategories || []).forEach(item => {
+                const option = document.createElement("option");
+                option.value = item.value;
+                option.textContent = `${item.label} (${item.count})`;
+                subcategorySelect.appendChild(option);
+            });
+        }
         populateStatusMultiselectOptions(options.statuses || [], triggerFilterUpdate);
         transactionFilterOptionsLoaded = true;
     } catch (e) {
@@ -2685,6 +2700,7 @@ function setupFilters() {
     const endDateInput = document.getElementById("tx-end-date");
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
+    const subcategorySelect = document.getElementById("tx-subcategory-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");
     if (monthInput) {
@@ -2709,6 +2725,7 @@ function setupFilters() {
     }
     if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
     if (assignmentSelect) assignmentSelect.onchange = triggerFilterUpdate;
+    if (subcategorySelect) subcategorySelect.onchange = triggerFilterUpdate;
     if (amountInput) amountInput.oninput = debouncedFilterUpdate;
     if (resetFiltersBtn) resetFiltersBtn.onclick = resetTransactionFilters;
     
@@ -2762,7 +2779,7 @@ function resetTransactionFilters() {
         const input = document.getElementById(id);
         if (input) input.value = "";
     });
-    ["tx-account-filter", "tx-assignment-filter"].forEach(id => {
+    ["tx-account-filter", "tx-assignment-filter", "tx-subcategory-filter"].forEach(id => {
         const select = document.getElementById(id);
         if (select) select.value = "all";
     });
@@ -2781,17 +2798,18 @@ function setupSpendingDrilldown() {
         const cell = event.target.closest("button[data-drilldown-period][data-drilldown-category]");
         if (!cell) return;
 
-        drillDownToTransactions(cell.dataset.drilldownPeriod || "", cell.dataset.drilldownCategory || "");
+        drillDownToTransactions(cell.dataset.drilldownPeriod || "", cell.dataset.drilldownCategory || "", cell.dataset.drilldownSubcategory || "");
     });
 }
 
-function drillDownToTransactions(period, category) {
+function drillDownToTransactions(period, category, subcategory = "") {
     const monthInput = document.getElementById("tx-month-filter");
     const startDateInput = document.getElementById("tx-start-date");
     const endDateInput = document.getElementById("tx-end-date");
     const searchInput = document.getElementById("tx-search-input");
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
+    const subcategorySelect = document.getElementById("tx-subcategory-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     const isMonth = /^\d{4}-\d{2}$/.test(period);
 
@@ -2801,6 +2819,7 @@ function drillDownToTransactions(period, category) {
     if (searchInput) searchInput.value = "";
     if (accountSelect) accountSelect.value = "all";
     if (assignmentSelect) assignmentSelect.value = "all";
+    if (subcategorySelect) subcategorySelect.value = subcategory === "Uncategorized" ? "__uncategorized__" : (subcategory || "all");
     if (amountInput) amountInput.value = "";
     setMultiselectValues("filter-category-container", [category]);
     const postedStatuses = Array.from(document.querySelectorAll("#reviewed-options-list input"))

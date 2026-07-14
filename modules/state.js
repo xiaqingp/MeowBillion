@@ -17,6 +17,7 @@ export const state = {
         endDate: "",
         account: "all",
         assignment: "all",
+        subcategory: "all",
         amount: ""
     },
     hasMore: false,

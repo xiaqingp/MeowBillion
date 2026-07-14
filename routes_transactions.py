@@ -172,8 +172,11 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             where_clauses.append(f"t.type IN ({placeholders})")
             params.extend(cats)
     if subtype and subtype != 'all':
-        where_clauses.append("t.subtype = ?")
-        params.append(subtype)
+        if subtype == '__uncategorized__':
+            where_clauses.append("(TRIM(COALESCE(t.subtype, '')) = '' OR lower(TRIM(t.subtype)) = 'uncategorized')")
+        else:
+            where_clauses.append("t.subtype = ?")
+            params.append(subtype)
         
     # Multi-select transaction status.
     if reviewed_filter and reviewed_filter != 'all':
@@ -451,6 +454,27 @@ def transaction_filter_options():
                 (user_id,)
             ).fetchall()
 
+            subcategory_rows = conn.execute(
+                """
+                SELECT CASE
+                           WHEN TRIM(COALESCE(subtype, '')) = '' OR lower(TRIM(subtype)) = 'uncategorized'
+                           THEN '__uncategorized__'
+                           ELSE TRIM(subtype)
+                       END AS value,
+                       CASE
+                           WHEN TRIM(COALESCE(subtype, '')) = '' OR lower(TRIM(subtype)) = 'uncategorized'
+                           THEN 'Uncategorized'
+                           ELSE TRIM(subtype)
+                       END AS label,
+                       COUNT(*) AS count
+                FROM transactions
+                WHERE user_id = ?
+                GROUP BY value, label
+                ORDER BY lower(label)
+                """,
+                (user_id,)
+            ).fetchall()
+
             status_defs = [
                 ("pending", "Pending"),
                 ("needs_review", "Needs review"),
@@ -471,6 +495,7 @@ def transaction_filter_options():
             "accounts": [dict(r) for r in rows],
             "trips": [dict(r) for r in trip_rows],
             "rental_properties": [dict(r) for r in rental_rows],
+            "subcategories": [dict(r) for r in subcategory_rows],
             "statuses": statuses
         })
     except Exception as e:

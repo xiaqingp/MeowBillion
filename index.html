@@ -15,7 +15,7 @@
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
     <!-- Chart.js -->
     <script src="vendor/chart.umd.min.js?v=20260703212500"></script>
-    <link rel="stylesheet" href="styles.css?v=20260713173100">
+    <link rel="stylesheet" href="styles.css?v=20260713174400">
 </head>
 <body>
     <div class="auth-screen" id="auth-screen" style="display:none;">
@@ -89,7 +89,7 @@
                     <div class="user-info">
                         <span class="user-name" id="sidebar-user-name">MeowBillion</span>
                         <span class="user-role">Personal finance workspace</span>
-                        <span class="version-meta">v0.1.19 · Updated 2026-07-13 17:31</span>
+                        <span class="version-meta">v0.1.20 · Updated 2026-07-13 17:44</span>
                         <button class="footer-signout" id="signout-btn">Sign out</button>
                     </div>
                 </div>
@@ -326,6 +326,10 @@
                                 </div>
                             </div>
                         </div>
+
+                        <select id="tx-subcategory-filter" class="filter-select tx-subcategory-filter" title="Subcategory">
+                            <option value="all">All subcategories</option>
+                        </select>
 
                         <!-- Multi-select: Transaction Status -->
                         <div class="custom-multiselect" id="filter-reviewed-container">
@@ -625,7 +629,7 @@
     </div>
 
     <!-- Application Script -->
-    <script type="module" src="app.js?v=20260713173100"></script>
+    <script type="module" src="app.js?v=20260713174400"></script>
 </body>
 </html>
 

@@ -903,6 +903,11 @@ select:focus, input:focus, button:focus {
     min-width: 150px;
 }
 
+.tx-subcategory-filter {
+    width: 154px;
+    min-width: 138px;
+}
+
 .tx-amount-filter {
     width: 156px;
     min-width: 144px;

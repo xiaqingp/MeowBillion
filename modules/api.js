@@ -71,6 +71,7 @@ export async function fetchTransactions(page, limit, filters) {
         end_date: filters.endDate || "",
         account: filters.account || "all",
         assignment: filters.assignment || "all",
+        subtype: filters.subcategory || "all",
         amount: filters.amount || ""
     });
     const res = await fetch(`/api/transactions?${queryParams}`);

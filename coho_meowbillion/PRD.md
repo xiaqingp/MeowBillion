@@ -53,13 +53,14 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Users can sign in, sign up, and maintain isolated user-scoped data.
 - Each user can store and manage Plaid credentials in-app.
 - Users can link, repair, reconnect, sync, and clean cached Plaid institutions.
-- Transactions can be filtered by search, date/month, account, amount, category, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
+- Transactions can be filtered by search, date/month, account, amount, category, subcategory, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
 - Transaction filter selections survive a browser refresh within the current tab and remain isolated by user.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
 - Plaid investment income imports into Transactions for `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend` only; other investment activity remains excluded.
 - Imported investment income maps to `Income / Interest` or `Income / Dividend`, remains unreviewed, and preserves the original Plaid subtype for future analysis.
 - Spending shows monthly and yearly Income totals broken down by subcategory, excluding pending transactions.
+- Every non-zero Spending category or Income subcategory cell opens Transactions with the matching period and classification filters.
 - Travel transactions can link to `trips.id` through `transactions.trip_id`.
 - Rental transactions can link to `rental_properties.id` through `transactions.rental_property_id`.
 - Trip Manager, Rental Property Manager, and Rental Rule Manager support inline table editing.
