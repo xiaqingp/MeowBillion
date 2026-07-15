@@ -1137,6 +1137,7 @@ let netWorthTrendHistory = [];
 let netWorthTrendHistoryPromise = null;
 const netWorthDriverCache = new Map();
 const netWorthDriverPromises = new Map();
+const netWorthDriverRefreshDates = new Set();
 let netWorthDriverCacheVersion = 0;
 let netWorthDriverActiveDate = "";
 let netWorthDriverTooltipPinned = false;
@@ -1172,6 +1173,7 @@ function clearNetWorthDriverCache() {
     netWorthDriverCacheVersion += 1;
     netWorthDriverCache.clear();
     netWorthDriverPromises.clear();
+    netWorthDriverRefreshDates.clear();
     netWorthDriverActiveDate = "";
     netWorthDriverTooltipPinned = false;
     document.querySelectorAll(".net-worth-driver-tooltip").forEach(el => {
@@ -1336,8 +1338,10 @@ function externalNetWorthTooltip(context) {
     renderNetWorthDriverTooltipContent(element, entry, fallback);
     positionNetWorthDriverTooltip(chart, tooltip, element);
 
-    if (entry.status === "loading") {
+    if (entry.status === "loading" && !netWorthDriverRefreshDates.has(raw.date)) {
+        netWorthDriverRefreshDates.add(raw.date);
         fetchNetWorthDriverCached(raw.date).then(() => {
+            netWorthDriverRefreshDates.delete(raw.date);
             if (netWorthDriverActiveDate === raw.date && netWorthChartInstance === chart) {
                 chart.update("none");
             }
@@ -1454,6 +1458,8 @@ export async function renderBalanceTrendChart() {
                 },
                 onHover: (event, elements, chart) => {
                     const activeDatasetIndex = elements.length ? elements[0].datasetIndex : null;
+                    if (chart.$highlightedDatasetIndex === activeDatasetIndex) return;
+                    chart.$highlightedDatasetIndex = activeDatasetIndex;
                     chart.data.datasets.forEach((dataset, index) => {
                         const color = dataset.allocationColor;
                         const isActive = activeDatasetIndex === null || activeDatasetIndex === index;

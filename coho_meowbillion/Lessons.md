@@ -39,3 +39,11 @@
 - Fix: Apply the logo size and color rules to both the source `<i>` and rendered `<svg>` elements.
 - Prevention: Tests for Lucide styling must cover the rendered SVG selector, not only the pre-render HTML element.
 - Affected docs: Lessons.md, Milestones.md
+
+## 2026-07-14 - Net Worth tooltip redraw burst
+
+- Issue: The browser tab could freeze while moving across a Net Worth point whose driver request was still loading.
+- Cause: Repeated hover renders attached multiple completion callbacks to the same request, and every callback requested a chart redraw when the response arrived.
+- Fix: Allow one pending completion redraw per date and skip dataset highlight updates when the highlighted dataset has not changed.
+- Prevention: Async chart tooltips must deduplicate both network requests and response-driven redraw callbacks.
+- Affected docs: Lessons.md, Milestones.md
