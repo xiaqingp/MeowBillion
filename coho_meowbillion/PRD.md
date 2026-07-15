@@ -78,8 +78,8 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Manager pages should favor editable tables over separate add/list forms.
 - iPad/Tailscale usage must be practical through `HOST=0.0.0.0` on port `8090`.
 - Web and mobile use the same Tiffany `#0ABAB5` logo background with a white cat outline.
-- The web UI uses a balanced Tiffany theme: Tiffany identifies brand and interaction states, while financial categories and status semantics retain distinct coordinated colors.
-- Net Worth hover uses the native compact chart tooltip; full driver details appear only after an explicit point click/tap and dismiss outside the chart.
+- Web and mobile use a balanced Tiffany theme: Tiffany identifies brand and interaction states, while financial categories and status semantics retain distinct coordinated colors.
+- Net Worth stays compact on both clients: web hover and the mobile selected-point summary show only the date and value; full driver details appear only after an explicit point click/tap and dismiss outside the detail surface.
 
 ### Data Requirements
 
@@ -119,6 +119,7 @@ No external market scan was run during this baseline creation. Current baseline 
 | Tiffany logo across web and mobile | Keeps the in-app mark and browser favicon visually consistent with the mobile brand | 2026-07-13 |
 | Balanced Tiffany web theme | Extends the brand beyond the logo without reducing chart readability or semantic color meaning | 2026-07-13 |
 | Net Worth drivers live in the chart tooltip | Explains a selected snapshot without adding another permanent Overview panel | 2026-07-14 |
+| Mobile reuses the balanced Tiffany theme and Net Worth driver API | Keeps Overview behavior and financial color meaning consistent across clients | 2026-07-14 |
 
 ## Open Questions
 

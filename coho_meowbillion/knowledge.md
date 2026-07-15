@@ -69,3 +69,10 @@
 - Scope: User-scoped Overview Net Worth Trend tooltip.
 - Source: M4/T6 implementation and tests.
 - Usage: Load per date on demand; assets use direct deltas, liabilities reverse the sign, manual history participates, and aggregate Legacy gaps remain unattributed.
+
+## 2026-07-14 - Mobile Overview parity
+
+- Fact: Mobile v1.0.1 uses the balanced Tiffany palette and opens Net Worth account drivers only after a chart-point tap.
+- Scope: React Native Home screen and shared dashboard chart components.
+- Source: M4/T7 implementation and mobile tests.
+- Usage: Keep the chart summary compact and reuse `GET /api/net_worth_drivers?date=YYYY-MM-DD` for full details.

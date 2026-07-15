@@ -132,10 +132,10 @@ export function TransactionsScreen({ api, formatMoney, errorMessage }: Props) {
         </View>
         <View style={s.actions}>
           <IconButton onPress={() => setFilterOpen(true)}>
-            <SlidersHorizontal color="#4d53b7" size={20} />
+            <SlidersHorizontal color="#066F6C" size={20} />
           </IconButton>
           <IconButton onPress={() => setCreateOpen(true)}>
-            <Plus color="#4d53b7" size={21} />
+            <Plus color="#066F6C" size={21} />
           </IconButton>
         </View>
       </View>
@@ -171,7 +171,7 @@ export function TransactionsScreen({ api, formatMoney, errorMessage }: Props) {
         </Pressable>
       ) : null}
       {loading && !data ? (
-        <ActivityIndicator color="#6268dc" style={s.loader} />
+        <ActivityIndicator color="#0ABAB5" style={s.loader} />
       ) : (
         <FlatList
           contentContainerStyle={s.list}
@@ -1058,7 +1058,7 @@ function DateField({
     <View>
       <Label text={label} />
       <Pressable onPress={() => setOpen(true)} style={s.dateField}>
-        <CalendarDays color="#4d53b7" size={18} />
+        <CalendarDays color="#066F6C" size={18} />
         <Text style={s.dateText}>
           {month
             ? value.toLocaleDateString("en-US", {
@@ -1090,7 +1090,7 @@ function ModalHeader({ title, onClose }: { title: string; onClose(): void }) {
         {title}
       </Text>
       <IconButton onPress={onClose}>
-        <X color="#4d53b7" size={22} />
+        <X color="#066F6C" size={22} />
       </IconButton>
     </View>
   );
@@ -1213,10 +1213,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
   },
-  chipActive: { backgroundColor: "#eef0ff", borderColor: "#6268dc" },
+  chipActive: { backgroundColor: "#E8F9F8", borderColor: "#0ABAB5" },
   chipDisabled: { opacity: 0.65 },
   chipText: { color: "#657087", fontSize: 11, textTransform: "capitalize" },
-  chipTextActive: { color: "#4d53b7", fontWeight: "700" },
+  chipTextActive: { color: "#066F6C", fontWeight: "700" },
   input: {
     backgroundColor: "#fff",
     borderColor: "#dfe4ed",
@@ -1266,7 +1266,7 @@ const s = StyleSheet.create({
   },
   button: {
     alignItems: "center",
-    backgroundColor: "#6268dc",
+    backgroundColor: "#0ABAB5",
     borderRadius: 7,
     justifyContent: "center",
     marginTop: 12,
@@ -1335,17 +1335,17 @@ const s = StyleSheet.create({
   },
   resetButton: {
     alignItems: "center",
-    borderColor: "#6268dc",
+    borderColor: "#0ABAB5",
     borderRadius: 7,
     borderWidth: 1,
     flex: 1,
     justifyContent: "center",
     minHeight: 44,
   },
-  resetButtonText: { color: "#4d53b7", fontSize: 12, fontWeight: "700" },
+  resetButtonText: { color: "#066F6C", fontSize: 12, fontWeight: "700" },
   applyButton: {
     alignItems: "center",
-    backgroundColor: "#6268dc",
+    backgroundColor: "#0ABAB5",
     borderRadius: 7,
     flex: 2,
     justifyContent: "center",
@@ -1371,7 +1371,7 @@ const s = StyleSheet.create({
     maxWidth: 260,
   },
   clearDates: { alignSelf: "flex-start", marginTop: 12, paddingVertical: 7 },
-  clearDatesText: { color: "#4d53b7", fontSize: 12, fontWeight: "700" },
+  clearDatesText: { color: "#066F6C", fontSize: 12, fontWeight: "700" },
   pickerSheet: {
     backgroundColor: "#f7f8fb",
     borderTopLeftRadius: 14,
@@ -1383,8 +1383,8 @@ const s = StyleSheet.create({
   },
   assignmentTabs: { flexDirection: "row", gap: 6, marginTop: 13 },
   pickerAll: {
-    backgroundColor: "#eef0ff",
-    borderColor: "#6268dc",
+    backgroundColor: "#E8F9F8",
+    borderColor: "#0ABAB5",
     borderRadius: 7,
     borderWidth: 1,
     marginTop: 10,
@@ -1392,7 +1392,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
   },
-  pickerAllText: { color: "#4d53b7", fontSize: 13, fontWeight: "700" },
+  pickerAllText: { color: "#066F6C", fontSize: 13, fontWeight: "700" },
   pickerList: { paddingBottom: 22, paddingTop: 8 },
   pickerItem: {
     backgroundColor: "#fff",

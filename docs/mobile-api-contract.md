@@ -22,8 +22,11 @@ Mobile access tokens are random values. SQLite stores only their SHA-256 hashes.
 | `GET /api/credentials_status` | Bearer token | last successful sync display |
 | `GET /api/allocation_accounts` | Bearer token | canonical net-worth formula, portfolio allocation, and read-only account allocation summary |
 | `GET /api/allocation_history` | Bearer token | net-worth and asset-allocation trend charts |
+| `GET /api/net_worth_drivers?date=YYYY-MM-DD` | Bearer token | on-demand account drivers after tapping a Net Worth point |
 
 `/api/transactions` returns the desktop-compatible PascalCase fields, including `TransactionID`, `Merchant`, `Amount`, and `Direction`.
+
+The Home Net Worth chart stays compact. Tapping a point opens the full Top 3 Up/Down account explanation in a native bottom sheet; closing it returns to the chart without reloading Home.
 
 ## M3 Transactions
 

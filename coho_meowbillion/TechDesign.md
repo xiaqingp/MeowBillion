@@ -32,6 +32,7 @@ The design favors local-first storage, user-scoped rows, explicit review workflo
 
 - `styles.css` owns the brand and surface tokens. Tiffany `#0ABAB5` is the primary interaction color, with darker and pale variants for hover, text, focus, and selected states.
 - `app.js` owns one shared chart color map. Net Worth uses deep Tiffany; Allocation uses Cash `#238F9D`, Stock `#4A9B78`, Bond `#C89A43`, and Real Estate `#8875A8`.
+- The React Native client mirrors those brand and chart colors in its existing component styles. Income/Expense and status colors remain semantic.
 - Status colors remain semantic: success/income, danger/expense, warning/pending, and informational states are not collapsed into the brand color.
 - Theme changes do not alter layout, data, APIs, or responsive breakpoints.
 
@@ -42,6 +43,7 @@ The design favors local-first storage, user-scoped rows, explicit review workflo
 - Asset deltas contribute directly; liability deltas contribute with reversed sign; manual assets participate through account value estimates.
 - The API returns top three positive and negative contributors, the sum across all explained items, and an explicit unattributed residual for aggregate Legacy history.
 - Hover keeps the native Chart.js date/Net Worth tooltip. Desktop click and touch tap open the pinned HTML driver details; driver failures do not prevent chart rendering.
+- Mobile keeps its compact selected-point date/value summary. Tapping a point loads the same user-scoped endpoint and opens a native bottom sheet; results are cached by date for the current Home snapshot.
 
 ## Data Model
 

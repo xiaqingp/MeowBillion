@@ -46,6 +46,11 @@ import {
   normalizeApiEndpoint,
 } from "./src/config/apiEndpoint";
 import {
+  NetWorthDriversSheet,
+  type NetWorthDriverSelection,
+  type NetWorthDrivers,
+} from "./src/dashboard/NetWorthDriversSheet";
+import {
   Allocation,
   AssetBucket,
   buildDashboard,
@@ -389,7 +394,7 @@ export default function App() {
                   style={styles.tabButton}
                 >
                   <Icon
-                    color={active ? "#6268dc" : "#8d96a7"}
+                    color={active ? "#0ABAB5" : "#8d96a7"}
                     size={22}
                     strokeWidth={active ? 2.5 : 2}
                   />
@@ -508,7 +513,7 @@ function LoginScreen({
           ]}
         >
           {testingConnection ? (
-            <ActivityIndicator color="#6268dc" />
+            <ActivityIndicator color="#0ABAB5" />
           ) : (
             <Text style={styles.outlineButtonText}>Test connection</Text>
           )}
@@ -609,7 +614,7 @@ function MoreScreen({
           onPress={onClose}
           style={styles.settingsClose}
         >
-          <ArrowLeft color="#4d53b7" size={22} />
+          <ArrowLeft color="#066F6C" size={22} />
         </Pressable>
       </View>
       <Pressable
@@ -718,7 +723,7 @@ function SecurityScreen({ api, onBack }: { api: ApiClient; onBack(): void }) {
       <View style={styles.settingsTop}>
         <Text style={styles.settingsTitle}>Security</Text>
         <Pressable onPress={onBack} style={styles.settingsClose}>
-          <ArrowLeft color="#4d53b7" size={22} />
+          <ArrowLeft color="#066F6C" size={22} />
         </Pressable>
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -1091,6 +1096,32 @@ function HomeScreen({
     "All",
   );
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [driverSelection, setDriverSelection] = useState<NetWorthDriverSelection | null>(null);
+  const driverCache = useRef(new Map<string, NetWorthDrivers>());
+  useEffect(() => {
+    driverCache.current.clear();
+  }, [dashboard?.history.at(-1)?.date, dashboard?.netWorth]);
+  const openNetWorthDrivers = useCallback(async (point: HistoryPoint) => {
+    const date = point.date;
+    const netWorth = Number(point["Net Worth"] || 0);
+    const cached = driverCache.current.get(date);
+    if (cached) {
+      setDriverSelection({ date, netWorth, loading: false, data: cached });
+      return;
+    }
+    setDriverSelection({ date, netWorth, loading: true });
+    try {
+      const data = await api.get<NetWorthDrivers>(`/api/net_worth_drivers?date=${encodeURIComponent(date)}`);
+      driverCache.current.set(date, data);
+      setDriverSelection((current) => current?.date === date
+        ? { date, netWorth, loading: false, data }
+        : current);
+    } catch (requestError) {
+      setDriverSelection((current) => current?.date === date
+        ? { date, netWorth, loading: false, error: errorMessage(requestError) }
+        : current);
+    }
+  }, [api]);
   const allocationGroups = dashboard
     ? filterAllocationGroupsByBucket(dashboard.allocationGroups, selectedBucket)
     : [];
@@ -1102,7 +1133,7 @@ function HomeScreen({
           <RefreshControl
             refreshing={loading}
             onRefresh={onRefresh}
-            tintColor="#6268dc"
+            tintColor="#0ABAB5"
           />
         }
       >
@@ -1113,7 +1144,7 @@ function HomeScreen({
             onPress={onMore}
             style={styles.homeMore}
           >
-            <Settings color="#4d53b7" size={22} />
+            <Settings color="#066F6C" size={22} />
           </Pressable>
         </View>
         {loading && !dashboard ? (
@@ -1133,7 +1164,7 @@ function HomeScreen({
               <View style={styles.kpiHeader}>
                 <Text style={styles.netWorthLabel}>Net Worth</Text>
                 <View style={[styles.kpiIcon, styles.netWorthIcon]}>
-                  <Landmark color="#6268dc" size={20} />
+                  <Landmark color="#0ABAB5" size={20} />
                 </View>
               </View>
               <Text style={styles.netWorthValue}>
@@ -1185,6 +1216,7 @@ function HomeScreen({
                   )}
                   range={netWorthRange}
                   series={["Net Worth"]}
+                  onPointPress={openNetWorthDrivers}
                 />
               )}
             </ChartCard>
@@ -1269,6 +1301,11 @@ function HomeScreen({
         errorMessage={errorMessage}
         formatMoney={formatMoney}
         onClose={() => setSelectedAccount(null)}
+      />
+      <NetWorthDriversSheet
+        formatMoney={formatMoney}
+        onClose={() => setDriverSelection(null)}
+        selection={driverSelection}
       />
     </>
   );
@@ -1366,7 +1403,7 @@ function PanelUnavailable() {
 function LoadingScreen({ label }: { label: string }) {
   return (
     <View style={styles.loading}>
-      <ActivityIndicator color="#6268dc" />
+      <ActivityIndicator color="#0ABAB5" />
       <Text style={styles.loadingText}>{label}</Text>
     </View>
   );
@@ -1518,9 +1555,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  filterButtonActive: { backgroundColor: "#eef0ff", borderColor: "#6268dc" },
+  filterButtonActive: { backgroundColor: "#E8F9F8", borderColor: "#0ABAB5" },
   filterText: { color: "#657087", fontSize: 11, fontWeight: "600" },
-  filterTextActive: { color: "#4d53b7" },
+  filterTextActive: { color: "#066F6C" },
   transactionsList: { paddingBottom: 30, paddingTop: 12 },
   transactionRow: {
     alignItems: "center",
@@ -1538,7 +1575,7 @@ const styles = StyleSheet.create({
   transactionActions: { alignItems: "flex-end", marginLeft: 8 },
   transactionAmount: { fontSize: 12, fontWeight: "700" },
   confirmButton: {
-    backgroundColor: "#6268dc",
+    backgroundColor: "#0ABAB5",
     borderRadius: 5,
     marginTop: 8,
     paddingHorizontal: 9,
@@ -1552,7 +1589,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   paginationButton: {
-    borderColor: "#6268dc",
+    borderColor: "#0ABAB5",
     borderRadius: 6,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -1595,7 +1632,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: "#6268dc",
+    backgroundColor: "#0ABAB5",
     borderRadius: 8,
     height: 48,
     justifyContent: "center",
@@ -1603,7 +1640,7 @@ const styles = StyleSheet.create({
   },
   outlineButton: {
     alignItems: "center",
-    borderColor: "#6268dc",
+    borderColor: "#0ABAB5",
     borderRadius: 8,
     borderWidth: 1,
     height: 42,
@@ -1620,7 +1657,7 @@ const styles = StyleSheet.create({
     marginTop: 26,
   },
   primaryButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  outlineButtonText: { color: "#6268dc", fontSize: 13, fontWeight: "700" },
+  outlineButtonText: { color: "#0ABAB5", fontSize: 13, fontWeight: "700" },
   dangerButtonText: { color: "#b73e59", fontSize: 14, fontWeight: "700" },
   disabledButton: { opacity: 0.45 },
   apiHint: {
@@ -1686,7 +1723,7 @@ const styles = StyleSheet.create({
   netWorth: {
     backgroundColor: "#fff",
     borderColor: "#e6eaf2",
-    borderLeftColor: "#6268dc",
+    borderLeftColor: "#0ABAB5",
     borderLeftWidth: 4,
     borderRadius: 8,
     borderWidth: 1,
@@ -1704,7 +1741,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 32,
   },
-  netWorthIcon: { backgroundColor: "#eef0ff" },
+  netWorthIcon: { backgroundColor: "#E8F9F8" },
   inflowIcon: { backgroundColor: "#e8f8f2" },
   outflowIcon: { backgroundColor: "#fff0f3" },
   netWorthLabel: { color: "#687893", fontSize: 13, fontWeight: "600" },
@@ -1751,7 +1788,7 @@ const styles = StyleSheet.create({
   },
   pendingTitle: { color: "#182033", fontSize: 15, fontWeight: "700" },
   pendingHint: { color: "#8992a4", fontSize: 11, marginTop: 3 },
-  pendingCount: { color: "#6268dc", fontSize: 25, fontWeight: "700" },
+  pendingCount: { color: "#0ABAB5", fontSize: 25, fontWeight: "700" },
   chartCard: {
     backgroundColor: "#fff",
     borderColor: "#e6eaf2",
@@ -1822,7 +1859,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   errorText: { color: "#a83f58", flex: 1, fontSize: 12, marginTop: 8 },
-  retry: { color: "#6268dc", fontSize: 12, fontWeight: "700", marginLeft: 12 },
+  retry: { color: "#0ABAB5", fontSize: 12, fontWeight: "700", marginLeft: 12 },
   loading: {
     alignItems: "center",
     gap: 10,
@@ -1852,7 +1889,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabLabel: { color: "#8d96a7", fontSize: 10, fontWeight: "600" },
-  tabActive: { color: "#6268dc" },
+  tabActive: { color: "#0ABAB5" },
   placeholder: {
     alignItems: "center",
     flex: 1,
