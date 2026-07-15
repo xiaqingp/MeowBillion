@@ -55,3 +55,11 @@
 - Fix: Restore the compact date/Net Worth hover and require click/tap for the complete driver panel.
 - Prevention: Keep hover content glanceable; put multi-row analysis behind an explicit action.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md
+
+## 2026-07-14 - Net Worth detail dismissal
+
+- Issue: Clicking blank space inside the Net Worth chart did not close the pinned detail panel.
+- Cause: The document dismiss handler excluded the entire chart canvas, while the chart click handler ignored clicks without a data point.
+- Fix: Handle blank chart clicks explicitly and toggle the panel off when the selected point is clicked again.
+- Prevention: Pinned chart overlays need tested close paths for outside-page clicks, chart blank-space clicks, and repeated point clicks.
+- Affected docs: Lessons.md, Milestones.md

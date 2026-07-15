@@ -26,6 +26,9 @@ class NetWorthDriverTooltipUiTests(unittest.TestCase):
         plaid_service = (ROOT / "modules" / "plaid-service.js").read_text(encoding="utf-8")
 
         self.assertIn("netWorthDriverTooltipPinned = true", js)
+        self.assertIn("if (!elements.length)", js)
+        self.assertIn("hideNetWorthDriverDetails();", js)
+        self.assertIn("netWorthDriverActiveDate === raw.date", js)
         self.assertIn('document.addEventListener("pointerdown"', js)
         self.assertIn("clearNetWorthDriverCache();", js)
         self.assertIn("refreshOverview: true", plaid_service)

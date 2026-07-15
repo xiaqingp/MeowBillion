@@ -24,7 +24,7 @@ class TiffanyThemeTests(unittest.TestCase):
 
     def test_displayed_version_is_bumped(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        self.assertIn("v0.1.26", html)
+        self.assertIn("v0.1.27", html)
 
 
 if __name__ == "__main__":

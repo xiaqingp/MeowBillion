@@ -1337,19 +1337,22 @@ function showNetWorthDriverDetails(chart, raw, caret) {
     }
 }
 
+function hideNetWorthDriverDetails() {
+    netWorthDriverTooltipPinned = false;
+    netWorthDriverActiveDate = "";
+    document.querySelectorAll(".net-worth-driver-tooltip").forEach(element => {
+        element.style.opacity = "0";
+        element.setAttribute("aria-hidden", "true");
+    });
+}
+
 function bindNetWorthDriverDismiss() {
     if (netWorthDriverDismissBound) return;
     netWorthDriverDismissBound = true;
     document.addEventListener("pointerdown", event => {
         if (!netWorthDriverTooltipPinned) return;
         if (event.target.closest("#balanceTrendChart, .net-worth-driver-tooltip")) return;
-        netWorthDriverTooltipPinned = false;
-        netWorthDriverActiveDate = "";
-        if (netWorthChartInstance) {
-            netWorthChartInstance.setActiveElements([]);
-            netWorthChartInstance.tooltip?.setActiveElements([], { x: 0, y: 0 });
-            netWorthChartInstance.update("none");
-        }
+        hideNetWorthDriverDetails();
     });
 }
 
@@ -1460,10 +1463,18 @@ export async function renderBalanceTrendChart() {
                     chart.update('none');
                 },
                 onClick: (event, elements, chart) => {
-                    if (!enableDriverDetails || !elements.length) return;
+                    if (!enableDriverDetails) return;
+                    if (!elements.length) {
+                        hideNetWorthDriverDetails();
+                        return;
+                    }
                     const point = elements[0];
                     const raw = chart.data.datasets[point.datasetIndex]?.data?.[point.index];
                     if (!raw?.date) return;
+                    if (netWorthDriverTooltipPinned && netWorthDriverActiveDate === raw.date) {
+                        hideNetWorthDriverDetails();
+                        return;
+                    }
                     showNetWorthDriverDetails(chart, raw, { caretX: event.x, caretY: event.y });
                 },
                 plugins: {

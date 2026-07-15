@@ -171,3 +171,4 @@
 | 2026-07-14 | Added Net Worth driver tooltip | Added user-scoped attribution, Top 3 Up/Down hover details, touch pinning, residual reconciliation, and on-demand caching in v0.1.24 | M4/T6 |
 | 2026-07-14 | Stabilized Net Worth hover rendering | Deduplicated loading-completion redraws and skipped unchanged dataset highlight updates after a browser freeze report | M4/T6 |
 | 2026-07-14 | Split Net Worth hover and details | Restored the compact date/Net Worth hover and moved full Top 3 attribution to explicit click/tap in v0.1.26 | M4/T6 |
+| 2026-07-14 | Fixed Net Worth detail dismissal | Chart blank-space clicks and repeated clicks on the selected point now close the full detail panel in v0.1.27 | M4/T6 |
