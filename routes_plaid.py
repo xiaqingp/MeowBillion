@@ -3,6 +3,7 @@ import json
 import time
 import re
 import threading
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 import plaid
 from plaid.api import plaid_api
@@ -2457,6 +2458,196 @@ def get_allocation_history():
 
         series = [by_date[date] for date in sorted(by_date.keys())]
         return jsonify({"history": series, "categories": ["Net Worth", *ASSET_BUCKETS]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _latest_item_value(candidates, cutoff):
+    eligible = [row for row in candidates if row["date"] <= cutoff]
+    return max(eligible, key=lambda row: (row["date"], row["priority"]), default=None)
+
+
+def _net_worth_driver_items(user_id, selected_date, previous_date):
+    with get_db() as conn:
+        accounts = {
+            row["account_id"]: {
+                "account_id": row["account_id"],
+                "name": row["name"] or row["official_name"] or "Account",
+                "institution_name": row["institution_name"] or "Unknown",
+                "is_liability": lower_field(row["type"]) == "credit",
+                "candidates": [],
+            }
+            for row in conn.execute(
+                """
+                SELECT account_id, name, official_name, institution_name, type
+                FROM accounts
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+
+        for row in conn.execute(
+            """
+            SELECT account_id, date, balance_current
+            FROM account_balances_history
+            WHERE user_id = ? AND date <= ?
+            ORDER BY date ASC
+            """,
+            (user_id, selected_date),
+        ).fetchall():
+            if row["account_id"] in accounts:
+                accounts[row["account_id"]]["candidates"].append({
+                    "date": row["date"],
+                    "value": float(row["balance_current"] or 0.0),
+                    "priority": 2,
+                    "source": "plaid",
+                })
+
+        for row in conn.execute(
+            """
+            SELECT account_id, date, value
+            FROM account_value_estimates
+            WHERE user_id = ? AND date <= ?
+            ORDER BY date ASC
+            """,
+            (user_id, selected_date),
+        ).fetchall():
+            if row["account_id"] in accounts:
+                accounts[row["account_id"]]["candidates"].append({
+                    "date": row["date"],
+                    "value": float(row["value"] or 0.0),
+                    "priority": 1,
+                    "source": "estimated",
+                })
+
+        manual_assets = {
+            row["asset_id"]: {
+                "account_id": row["asset_id"],
+                "name": row["name"],
+                "institution_name": "Manual Assets",
+                "is_liability": False,
+                "candidates": [],
+            }
+            for row in conn.execute(
+                "SELECT asset_id, name FROM manual_assets WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        }
+        for row in conn.execute(
+            """
+            SELECT asset_id, date, value
+            FROM manual_asset_values
+            WHERE user_id = ? AND date <= ?
+            ORDER BY date ASC
+            """,
+            (user_id, selected_date),
+        ).fetchall():
+            if row["asset_id"] in manual_assets:
+                manual_assets[row["asset_id"]]["candidates"].append({
+                    "date": row["date"],
+                    "value": float(row["value"] or 0.0),
+                    "priority": 2,
+                    "source": "manual_asset",
+                })
+
+    result = []
+    for item in [*accounts.values(), *manual_assets.values()]:
+        current = _latest_item_value(item["candidates"], selected_date)
+        previous = _latest_item_value(item["candidates"], previous_date)
+        if not current and not previous:
+            continue
+        current_value = float(current["value"] if current else 0.0)
+        previous_value = float(previous["value"] if previous else 0.0)
+        contribution = (
+            previous_value - current_value
+            if item["is_liability"]
+            else current_value - previous_value
+        )
+        if abs(contribution) < 0.01:
+            continue
+        result.append({
+            "account_id": item["account_id"],
+            "name": item["name"],
+            "institution_name": item["institution_name"],
+            "source": current["source"] if current else previous["source"],
+            "previous_balance": round(previous_value, 2),
+            "current_balance": round(current_value, 2),
+            "contribution": round(contribution, 2),
+            "newly_included": previous is None and current is not None,
+        })
+    return result
+
+
+@plaid_bp.route('/api/net_worth_drivers', methods=['GET'])
+def get_net_worth_drivers():
+    selected_date = (request.args.get("date") or "").strip()
+    try:
+        datetime.strptime(selected_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "Missing or invalid date"}), 400
+
+    try:
+        user_id = current_user_id()
+        allocation_response = get_allocation_history()
+        if isinstance(allocation_response, tuple):
+            response, status = allocation_response
+            if status >= 400:
+                return response, status
+        else:
+            response = allocation_response
+        history = (response.get_json(silent=True) or {}).get("history") or []
+        selected_index = next(
+            (index for index, row in enumerate(history) if row.get("date") == selected_date),
+            None,
+        )
+        if selected_index is None or selected_index == 0:
+            return jsonify({"error": "Net Worth snapshot or previous snapshot not found"}), 404
+
+        selected = history[selected_index]
+        previous = history[selected_index - 1]
+        net_worth = float(selected.get("Net Worth") or 0.0)
+        previous_net_worth = float(previous.get("Net Worth") or 0.0)
+        net_worth_change = round(net_worth - previous_net_worth, 2)
+        items = _net_worth_driver_items(user_id, selected_date, previous["date"])
+        explained_change = round(sum(row["contribution"] for row in items), 2)
+        unattributed_change = round(net_worth_change - explained_change, 2)
+        if abs(unattributed_change) < 0.01:
+            unattributed_change = 0.0
+        if abs(net_worth_change) < 0.01:
+            coverage_pct = 100.0 if unattributed_change == 0 else 0.0
+        else:
+            coverage_pct = max(
+                0.0,
+                min(100.0, (1.0 - abs(unattributed_change) / abs(net_worth_change)) * 100.0),
+            )
+
+        top_up = sorted(
+            (row for row in items if row["contribution"] > 0),
+            key=lambda row: row["contribution"],
+            reverse=True,
+        )[:3]
+        top_down = sorted(
+            (row for row in items if row["contribution"] < 0),
+            key=lambda row: row["contribution"],
+        )[:3]
+        return jsonify({
+            "date": selected_date,
+            "previous_date": previous["date"],
+            "net_worth": round(net_worth, 2),
+            "previous_net_worth": round(previous_net_worth, 2),
+            "net_worth_change": net_worth_change,
+            "change_pct": (
+                round(net_worth_change / abs(previous_net_worth) * 100.0, 4)
+                if previous_net_worth
+                else None
+            ),
+            "explained_change": explained_change,
+            "unattributed_change": unattributed_change,
+            "coverage_pct": round(coverage_pct, 1),
+            "top_up": top_up,
+            "top_down": top_down,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

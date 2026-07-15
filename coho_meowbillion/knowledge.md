@@ -62,3 +62,10 @@
 - Scope: Investment-like Plaid Items and the existing Transaction review flow.
 - Source: User-approved mapping and `routes_plaid.py`.
 - Usage: Map to `Income / Interest` or `Income / Dividend`; first import starts January 1 of the current year, later imports look back 90 days, and reviewed rows remain protected.
+
+## 2026-07-14 - Net Worth driver attribution
+
+- Fact: `GET /api/net_worth_drivers?date=YYYY-MM-DD` explains a Net Worth snapshot against its actual preceding snapshot with Top 3 Up/Down account contributions and an explicit unattributed residual.
+- Scope: User-scoped Overview Net Worth Trend tooltip.
+- Source: M4/T6 implementation and tests.
+- Usage: Load per date on demand; assets use direct deltas, liabilities reverse the sign, manual history participates, and aggregate Legacy gaps remain unattributed.

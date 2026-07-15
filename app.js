@@ -7,6 +7,7 @@ import {
     confirmTransferApi,
     fetchBalanceHistoryApi,
     fetchAllocationHistoryApi,
+    fetchNetWorthDriversApi,
     fetchConnectionsApi,
     disconnectItemApi,
     fetchPortfolioAllocationApi,
@@ -337,6 +338,13 @@ export async function loadCategoriesConfig() {
 export async function loadData(options = {}) {
     const tStart = performance.now();
     const scrollSnapshot = options.preserveScroll ? getScrollSnapshot(options.scrollTargetSelector) : null;
+    if (options.refreshOverview) {
+        netWorthTrendHistory = [];
+        netWorthTrendHistoryPromise = null;
+        allocationAccountsCache = null;
+        allocationAccountsPromise = null;
+        clearNetWorthDriverCache();
+    }
     const tbody = document.getElementById("tx-tbody");
     if (tbody) {
         tbody.innerHTML = `
@@ -1127,6 +1135,12 @@ let allocationTrendChartInstance = null;
 let netWorthTrendRange = "1M";
 let netWorthTrendHistory = [];
 let netWorthTrendHistoryPromise = null;
+const netWorthDriverCache = new Map();
+const netWorthDriverPromises = new Map();
+let netWorthDriverCacheVersion = 0;
+let netWorthDriverActiveDate = "";
+let netWorthDriverTooltipPinned = false;
+let netWorthDriverDismissBound = false;
 let allocationAccountsCache = null;
 let allocationAccountsPromise = null;
 let expandedAllocationAccountId = "";
@@ -1138,6 +1152,7 @@ async function fetchAllocationHistoryCached(force = false) {
     if (force) {
         netWorthTrendHistory = [];
         netWorthTrendHistoryPromise = null;
+        clearNetWorthDriverCache();
     }
     if (netWorthTrendHistory.length) return netWorthTrendHistory;
     if (!netWorthTrendHistoryPromise) {
@@ -1151,6 +1166,199 @@ async function fetchAllocationHistoryCached(force = false) {
             });
     }
     return await netWorthTrendHistoryPromise;
+}
+
+function clearNetWorthDriverCache() {
+    netWorthDriverCacheVersion += 1;
+    netWorthDriverCache.clear();
+    netWorthDriverPromises.clear();
+    netWorthDriverActiveDate = "";
+    netWorthDriverTooltipPinned = false;
+    document.querySelectorAll(".net-worth-driver-tooltip").forEach(el => {
+        el.style.opacity = "0";
+        el.setAttribute("aria-hidden", "true");
+    });
+}
+
+function fetchNetWorthDriverCached(date) {
+    if (netWorthDriverCache.has(date)) return Promise.resolve(netWorthDriverCache.get(date));
+    if (netWorthDriverPromises.has(date)) return netWorthDriverPromises.get(date);
+    netWorthDriverCache.set(date, { status: "loading" });
+    const requestVersion = netWorthDriverCacheVersion;
+    const requestPromise = fetchNetWorthDriversApi(date)
+        .then(data => {
+            const entry = { status: "ready", data };
+            if (requestVersion === netWorthDriverCacheVersion) netWorthDriverCache.set(date, entry);
+            return entry;
+        })
+        .catch(error => {
+            const entry = { status: "error", error };
+            if (requestVersion === netWorthDriverCacheVersion) netWorthDriverCache.set(date, entry);
+            return entry;
+        })
+        .finally(() => {
+            if (netWorthDriverPromises.get(date) === requestPromise) netWorthDriverPromises.delete(date);
+        });
+    netWorthDriverPromises.set(date, requestPromise);
+    return requestPromise;
+}
+
+function signedDriverCurrency(value) {
+    const amount = Number(value || 0);
+    const formatted = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0
+    }).format(Math.abs(amount));
+    return `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${formatted}`;
+}
+
+function netWorthDriverFallback(date, netWorth) {
+    const index = netWorthTrendHistory.findIndex(row => row.date === date);
+    const previous = index > 0 ? netWorthTrendHistory[index - 1] : null;
+    const currentValue = Number(netWorth || 0);
+    const previousValue = Number(previous?.["Net Worth"] || 0);
+    return {
+        date,
+        previous_date: previous?.date || "",
+        net_worth: currentValue,
+        net_worth_change: previous ? currentValue - previousValue : 0,
+        change_pct: previousValue ? (currentValue - previousValue) / Math.abs(previousValue) * 100 : null
+    };
+}
+
+function renderDriverMoveRows(rows, direction) {
+    if (!rows?.length) return `<div class="net-worth-driver-empty">No ${direction === "up" ? "positive" : "negative"} movers</div>`;
+    const arrow = direction === "up" ? "&uarr;" : "&darr;";
+    return rows.map(row => {
+        const context = [row.institution_name, row.newly_included ? "Newly included" : ""]
+            .filter(Boolean)
+            .join(" | ");
+        return `
+            <div class="net-worth-driver-row net-worth-driver-${direction}">
+                <span class="net-worth-driver-arrow" aria-hidden="true">${arrow}</span>
+                <span class="net-worth-driver-account">
+                    <strong title="${escapeHtml(row.name || "Account")}">${escapeHtml(row.name || "Account")}</strong>
+                    ${context ? `<small>${escapeHtml(context)}</small>` : ""}
+                </span>
+                <span class="net-worth-driver-amount">${signedDriverCurrency(row.contribution)}</span>
+            </div>
+        `;
+    }).join("");
+}
+
+function renderNetWorthDriverTooltipContent(element, entry, fallback) {
+    const data = entry?.data || fallback;
+    const dateLabel = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+    }).format(new Date(`${data.date}T00:00:00`));
+    const previousLabel = data.previous_date
+        ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
+            .format(new Date(`${data.previous_date}T00:00:00`))
+        : "previous snapshot";
+    const percent = data.change_pct == null
+        ? ""
+        : ` ${Number(data.change_pct) >= 0 ? "+" : ""}${Number(data.change_pct).toFixed(2)}%`;
+    let detailHtml = `<div class="net-worth-driver-loading">Loading account drivers...</div>`;
+    if (entry?.status === "error") {
+        detailHtml = `<div class="net-worth-driver-error">Account drivers are unavailable for this point.</div>`;
+    } else if (entry?.status === "ready") {
+        detailHtml = `
+            <div class="net-worth-driver-section">
+                <span class="net-worth-driver-heading">Top moves up</span>
+                ${renderDriverMoveRows(data.top_up, "up")}
+            </div>
+            <div class="net-worth-driver-section">
+                <span class="net-worth-driver-heading">Top moves down</span>
+                ${renderDriverMoveRows(data.top_down, "down")}
+            </div>
+            <div class="net-worth-driver-reconciliation">
+                <span>Explained ${Number(data.coverage_pct || 0).toFixed(1)}%</span>
+                <span>Unattributed ${signedDriverCurrency(data.unattributed_change)}</span>
+            </div>
+        `;
+    }
+    element.innerHTML = `
+        <div class="net-worth-driver-date">${dateLabel}</div>
+        <div class="net-worth-driver-summary"><span>Net Worth</span><strong>${signedDriverCurrency(data.net_worth).replace(/^\+/, "")}</strong></div>
+        <div class="net-worth-driver-summary net-worth-driver-change">
+            <span>Change since ${previousLabel}</span>
+            <strong>${signedDriverCurrency(data.net_worth_change)}${percent}</strong>
+        </div>
+        ${detailHtml}
+    `;
+}
+
+function positionNetWorthDriverTooltip(chart, tooltip, element) {
+    const panel = chart.canvas.parentElement;
+    const canvasLeft = chart.canvas.offsetLeft;
+    const canvasTop = chart.canvas.offsetTop;
+    element.style.opacity = "1";
+    element.setAttribute("aria-hidden", "false");
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    const maxLeft = Math.max(8, panel.clientWidth - width - 8);
+    const left = Math.min(maxLeft, Math.max(8, canvasLeft + tooltip.caretX - width / 2));
+    let top = canvasTop + tooltip.caretY - height - 12;
+    if (top < 8) top = canvasTop + tooltip.caretY + 12;
+    top = Math.min(Math.max(8, top), Math.max(8, panel.clientHeight - height - 8));
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+}
+
+function externalNetWorthTooltip(context) {
+    const { chart, tooltip } = context;
+    const panel = chart.canvas.parentElement;
+    let element = panel.querySelector(".net-worth-driver-tooltip");
+    if (!element) {
+        element = document.createElement("div");
+        element.className = "net-worth-driver-tooltip";
+        element.setAttribute("role", "status");
+        element.setAttribute("aria-hidden", "true");
+        panel.appendChild(element);
+    }
+    if (!tooltip || tooltip.opacity === 0) {
+        if (!netWorthDriverTooltipPinned) {
+            element.style.opacity = "0";
+            element.setAttribute("aria-hidden", "true");
+            netWorthDriverActiveDate = "";
+        }
+        return;
+    }
+
+    const raw = tooltip.dataPoints?.[0]?.raw;
+    if (!raw?.date) return;
+    netWorthDriverActiveDate = raw.date;
+    const fallback = netWorthDriverFallback(raw.date, raw.y);
+    const entry = netWorthDriverCache.get(raw.date) || { status: "loading" };
+    renderNetWorthDriverTooltipContent(element, entry, fallback);
+    positionNetWorthDriverTooltip(chart, tooltip, element);
+
+    if (entry.status === "loading") {
+        fetchNetWorthDriverCached(raw.date).then(() => {
+            if (netWorthDriverActiveDate === raw.date && netWorthChartInstance === chart) {
+                chart.update("none");
+            }
+        });
+    }
+}
+
+function bindNetWorthDriverDismiss() {
+    if (netWorthDriverDismissBound) return;
+    netWorthDriverDismissBound = true;
+    document.addEventListener("pointerdown", event => {
+        if (!netWorthDriverTooltipPinned) return;
+        if (event.target.closest("#balanceTrendChart, .net-worth-driver-tooltip")) return;
+        netWorthDriverTooltipPinned = false;
+        netWorthDriverActiveDate = "";
+        if (netWorthChartInstance) {
+            netWorthChartInstance.setActiveElements([]);
+            netWorthChartInstance.tooltip?.setActiveElements([], { x: 0, y: 0 });
+            netWorthChartInstance.update("none");
+        }
+    });
 }
 
 async function fetchAllocationAccountsCached(force = false) {
@@ -1195,6 +1403,7 @@ export async function renderBalanceTrendChart() {
     const netWorthCanvas = document.getElementById("balanceTrendChart");
     const allocationCanvas = document.getElementById("allocationTrendChart");
     if (!netWorthCanvas && !allocationCanvas) return;
+    bindNetWorthDriverDismiss();
 
     try {
         if (!netWorthTrendHistory.length) await fetchAllocationHistoryCached();
@@ -1229,7 +1438,7 @@ export async function renderBalanceTrendChart() {
             pointBackgroundColor: cfg.color
         }));
 
-        const buildTrendChart = (canvas, datasets) => new Chart(canvas.getContext('2d'), {
+        const buildTrendChart = (canvas, datasets, useDriverTooltip = false) => new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
                 datasets
@@ -1256,6 +1465,21 @@ export async function renderBalanceTrendChart() {
                     });
                     chart.update('none');
                 },
+                onClick: (event, elements, chart) => {
+                    const isTouch = window.matchMedia?.("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+                    if (!useDriverTooltip || !isTouch || !elements.length) return;
+                    const point = elements[0];
+                    const raw = chart.data.datasets[point.datasetIndex]?.data?.[point.index];
+                    if (!raw?.date) return;
+                    netWorthDriverTooltipPinned = true;
+                    netWorthDriverActiveDate = raw.date;
+                    chart.setActiveElements([{ datasetIndex: point.datasetIndex, index: point.index }]);
+                    chart.tooltip?.setActiveElements(
+                        [{ datasetIndex: point.datasetIndex, index: point.index }],
+                        { x: event.x, y: event.y }
+                    );
+                    chart.update("none");
+                },
                 plugins: {
                     legend: {
                         position: 'top',
@@ -1264,7 +1488,12 @@ export async function renderBalanceTrendChart() {
                             font: { family: 'Inter' }
                         }
                     },
-                    tooltip: {
+                    tooltip: useDriverTooltip ? {
+                        enabled: false,
+                        mode: "nearest",
+                        intersect: false,
+                        external: externalNetWorthTooltip
+                    } : {
                         mode: 'nearest',
                         intersect: false,
                         callbacks: {
@@ -1307,8 +1536,13 @@ export async function renderBalanceTrendChart() {
         });
 
         if (netWorthCanvas) {
+            netWorthDriverTooltipPinned = false;
+            netWorthDriverActiveDate = "";
+            netWorthCanvas.parentElement?.querySelector(".net-worth-driver-tooltip")?.remove();
             if (netWorthChartInstance) netWorthChartInstance.destroy();
-            netWorthChartInstance = buildTrendChart(netWorthCanvas, makeDatasets(netWorthConfig));
+            netWorthChartInstance = buildTrendChart(netWorthCanvas, makeDatasets(netWorthConfig), true);
+            const latestDate = historyData.at(-1)?.date;
+            if (latestDate) fetchNetWorthDriverCached(latestDate);
         }
         if (allocationCanvas) {
             if (allocationTrendChartInstance) allocationTrendChartInstance.destroy();

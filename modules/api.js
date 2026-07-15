@@ -341,6 +341,13 @@ export async function fetchAllocationHistoryApi() {
     return await res.json();
 }
 
+export async function fetchNetWorthDriversApi(date) {
+    const query = new URLSearchParams({ date });
+    const res = await fetch(`/api/net_worth_drivers?${query}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
 export async function fetchConnectionsApi() {
     const res = await fetch("/api/connections");
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);

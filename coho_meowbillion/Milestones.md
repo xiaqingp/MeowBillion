@@ -123,7 +123,7 @@
 | T3 | Investigate institution-specific holdings gaps | In progress | Plaid status and DB holdings inspection | Ongoing |
 | T4 | Add expandable account balance history in Account Allocation | Done | `tests/test_account_balance_history.py`; full unittest suite; static load check | Passed 2026-07-09 |
 | T5 | Apply approved balanced Tiffany web theme and coordinated allocation palette | Done | `tests/test_tiffany_theme.py`; JS syntax checks; full unittest suite; desktop/iPad visual checks | 72 tests passed 2026-07-13; 1440x900 and 1024x768 auth surfaces verified; authenticated Overview follows approved mock and static chart contract |
-| T6 | Add on-demand Net Worth driver tooltip with Top 3 Up/Down account contributions | Planned | Backend contribution/reconciliation tests; frontend tooltip contract test; JS syntax; full suite; desktop/iPad visual checks | Pending written-spec review |
+| T6 | Add on-demand Net Worth driver tooltip with Top 3 Up/Down account contributions | Done | Backend contribution/reconciliation tests; frontend tooltip contract test; JS syntax; full suite; real-data endpoint smoke check | 78 tests passed 2026-07-14; latest real snapshot reconciled at 100%; browser automation unavailable for final visual pass |
 
 #### Delivery Notes
 
@@ -168,3 +168,4 @@
 | 2026-07-13 | Approved balanced Tiffany web theme | User selected the balanced brand treatment and coordinated allocation palette in visual mockups | M4/T5 |
 | 2026-07-13 | Applied balanced Tiffany web theme | Replaced Indigo brand styling, unified Overview chart colors, and bumped web version to v0.1.23 | M4/T5 |
 | 2026-07-14 | Approved Net Worth driver tooltip | User selected an in-chart hover/tap explanation instead of a permanent Overview panel | M4/T6 |
+| 2026-07-14 | Added Net Worth driver tooltip | Added user-scoped attribution, Top 3 Up/Down hover details, touch pinning, residual reconciliation, and on-demand caching in v0.1.24 | M4/T6 |
