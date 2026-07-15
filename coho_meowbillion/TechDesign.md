@@ -41,7 +41,7 @@ The design favors local-first storage, user-scoped rows, explicit review workflo
 - Account contributions compare the latest known values on or before the selected and previous Net Worth snapshot dates.
 - Asset deltas contribute directly; liability deltas contribute with reversed sign; manual assets participate through account value estimates.
 - The API returns top three positive and negative contributors, the sum across all explained items, and an explicit unattributed residual for aggregate Legacy history.
-- Desktop uses hover; touch uses a pinned external HTML tooltip. Driver failures do not prevent chart rendering.
+- Hover keeps the native Chart.js date/Net Worth tooltip. Desktop click and touch tap open the pinned HTML driver details; driver failures do not prevent chart rendering.
 
 ## Data Model
 

@@ -1137,7 +1137,6 @@ let netWorthTrendHistory = [];
 let netWorthTrendHistoryPromise = null;
 const netWorthDriverCache = new Map();
 const netWorthDriverPromises = new Map();
-const netWorthDriverRefreshDates = new Set();
 let netWorthDriverCacheVersion = 0;
 let netWorthDriverActiveDate = "";
 let netWorthDriverTooltipPinned = false;
@@ -1173,7 +1172,6 @@ function clearNetWorthDriverCache() {
     netWorthDriverCacheVersion += 1;
     netWorthDriverCache.clear();
     netWorthDriverPromises.clear();
-    netWorthDriverRefreshDates.clear();
     netWorthDriverActiveDate = "";
     netWorthDriverTooltipPinned = false;
     document.querySelectorAll(".net-worth-driver-tooltip").forEach(el => {
@@ -1310,8 +1308,7 @@ function positionNetWorthDriverTooltip(chart, tooltip, element) {
     element.style.top = `${top}px`;
 }
 
-function externalNetWorthTooltip(context) {
-    const { chart, tooltip } = context;
+function showNetWorthDriverDetails(chart, raw, caret) {
     const panel = chart.canvas.parentElement;
     let element = panel.querySelector(".net-worth-driver-tooltip");
     if (!element) {
@@ -1321,29 +1318,20 @@ function externalNetWorthTooltip(context) {
         element.setAttribute("aria-hidden", "true");
         panel.appendChild(element);
     }
-    if (!tooltip || tooltip.opacity === 0) {
-        if (!netWorthDriverTooltipPinned) {
-            element.style.opacity = "0";
-            element.setAttribute("aria-hidden", "true");
-            netWorthDriverActiveDate = "";
-        }
-        return;
-    }
-
-    const raw = tooltip.dataPoints?.[0]?.raw;
     if (!raw?.date) return;
+    netWorthDriverTooltipPinned = true;
     netWorthDriverActiveDate = raw.date;
     const fallback = netWorthDriverFallback(raw.date, raw.y);
     const entry = netWorthDriverCache.get(raw.date) || { status: "loading" };
     renderNetWorthDriverTooltipContent(element, entry, fallback);
-    positionNetWorthDriverTooltip(chart, tooltip, element);
+    positionNetWorthDriverTooltip(chart, caret, element);
 
-    if (entry.status === "loading" && !netWorthDriverRefreshDates.has(raw.date)) {
-        netWorthDriverRefreshDates.add(raw.date);
+    if (entry.status === "loading") {
         fetchNetWorthDriverCached(raw.date).then(() => {
-            netWorthDriverRefreshDates.delete(raw.date);
-            if (netWorthDriverActiveDate === raw.date && netWorthChartInstance === chart) {
-                chart.update("none");
+            if (netWorthDriverTooltipPinned && netWorthDriverActiveDate === raw.date && netWorthChartInstance === chart) {
+                const loadedEntry = netWorthDriverCache.get(raw.date) || { status: "error" };
+                renderNetWorthDriverTooltipContent(element, loadedEntry, fallback);
+                positionNetWorthDriverTooltip(chart, caret, element);
             }
         });
     }
@@ -1442,7 +1430,7 @@ export async function renderBalanceTrendChart() {
             pointBackgroundColor: cfg.color
         }));
 
-        const buildTrendChart = (canvas, datasets, useDriverTooltip = false) => new Chart(canvas.getContext('2d'), {
+        const buildTrendChart = (canvas, datasets, enableDriverDetails = false) => new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: {
                 datasets
@@ -1472,19 +1460,11 @@ export async function renderBalanceTrendChart() {
                     chart.update('none');
                 },
                 onClick: (event, elements, chart) => {
-                    const isTouch = window.matchMedia?.("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-                    if (!useDriverTooltip || !isTouch || !elements.length) return;
+                    if (!enableDriverDetails || !elements.length) return;
                     const point = elements[0];
                     const raw = chart.data.datasets[point.datasetIndex]?.data?.[point.index];
                     if (!raw?.date) return;
-                    netWorthDriverTooltipPinned = true;
-                    netWorthDriverActiveDate = raw.date;
-                    chart.setActiveElements([{ datasetIndex: point.datasetIndex, index: point.index }]);
-                    chart.tooltip?.setActiveElements(
-                        [{ datasetIndex: point.datasetIndex, index: point.index }],
-                        { x: event.x, y: event.y }
-                    );
-                    chart.update("none");
+                    showNetWorthDriverDetails(chart, raw, { caretX: event.x, caretY: event.y });
                 },
                 plugins: {
                     legend: {
@@ -1494,12 +1474,7 @@ export async function renderBalanceTrendChart() {
                             font: { family: 'Inter' }
                         }
                     },
-                    tooltip: useDriverTooltip ? {
-                        enabled: false,
-                        mode: "nearest",
-                        intersect: false,
-                        external: externalNetWorthTooltip
-                    } : {
+                    tooltip: {
                         mode: 'nearest',
                         intersect: false,
                         callbacks: {

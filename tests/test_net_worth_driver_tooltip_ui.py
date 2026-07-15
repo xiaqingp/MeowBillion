@@ -6,27 +6,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NetWorthDriverTooltipUiTests(unittest.TestCase):
-    def test_chart_uses_external_on_demand_driver_tooltip(self):
+    def test_chart_keeps_compact_hover_and_loads_details_on_click(self):
         js = (ROOT / "app.js").read_text(encoding="utf-8")
         api = (ROOT / "modules" / "api.js").read_text(encoding="utf-8")
 
         self.assertIn("fetchNetWorthDriversApi", api)
-        self.assertIn("external: externalNetWorthTooltip", js)
-        self.assertIn("enabled: false", js)
+        self.assertIn("showNetWorthDriverDetails(chart, raw", js)
+        self.assertNotIn("external: externalNetWorthTooltip", js)
+        self.assertNotIn("enabled: false", js)
         self.assertIn("netWorthDriverCache = new Map()", js)
-        self.assertIn("netWorthDriverRefreshDates = new Set()", js)
-        self.assertIn("!netWorthDriverRefreshDates.has(raw.date)", js)
         self.assertIn("chart.$highlightedDatasetIndex === activeDatasetIndex", js)
         self.assertIn("fetchNetWorthDriverCached(latestDate)", js)
         self.assertIn("Top moves up", js)
         self.assertIn("Top moves down", js)
         self.assertIn("Unattributed", js)
 
-    def test_touch_pinning_and_cache_invalidation_are_wired(self):
+    def test_click_pinning_and_cache_invalidation_are_wired(self):
         js = (ROOT / "app.js").read_text(encoding="utf-8")
         plaid_service = (ROOT / "modules" / "plaid-service.js").read_text(encoding="utf-8")
 
-        self.assertIn('(pointer: coarse)', js)
         self.assertIn("netWorthDriverTooltipPinned = true", js)
         self.assertIn('document.addEventListener("pointerdown"', js)
         self.assertIn("clearNetWorthDriverCache();", js)

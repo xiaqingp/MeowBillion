@@ -68,7 +68,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Travel reports group by Trip ID and show net spending; inflow/refund transactions reduce spend.
 - Rental reports group by Rental Property ID and show property-level transactions, income, expense, monthly, and yearly summaries.
 - Overview shows net worth trend, allocation trend, portfolio allocation, and account allocation.
-- Net Worth Trend points explain their change through a hover/tap tooltip showing the top three positive and negative account-level contributors plus any unattributed residual.
+- Net Worth Trend hover stays compact with date and Net Worth only; clicking/tapping a point opens its top three positive and negative account-level contributors plus any unattributed residual.
 
 ### UX Requirements
 
@@ -79,7 +79,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - iPad/Tailscale usage must be practical through `HOST=0.0.0.0` on port `8090`.
 - Web and mobile use the same Tiffany `#0ABAB5` logo background with a white cat outline.
 - The web UI uses a balanced Tiffany theme: Tiffany identifies brand and interaction states, while financial categories and status semantics retain distinct coordinated colors.
-- Net Worth driver details appear on demand inside the chart tooltip; touch users can tap to pin and dismiss the explanation.
+- Net Worth hover uses the native compact chart tooltip; full driver details appear only after an explicit point click/tap and dismiss outside the chart.
 
 ### Data Requirements
 

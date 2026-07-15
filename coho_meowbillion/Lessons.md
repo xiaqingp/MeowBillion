@@ -47,3 +47,11 @@
 - Fix: Allow one pending completion redraw per date and skip dataset highlight updates when the highlighted dataset has not changed.
 - Prevention: Async chart tooltips must deduplicate both network requests and response-driven redraw callbacks.
 - Affected docs: Lessons.md, Milestones.md
+
+## 2026-07-14 - Net Worth hover detail density
+
+- Issue: Showing all account drivers on hover obscured most of the Net Worth curve.
+- Cause: Quick inspection and full explanation were combined in one moving overlay.
+- Fix: Restore the compact date/Net Worth hover and require click/tap for the complete driver panel.
+- Prevention: Keep hover content glanceable; put multi-row analysis behind an explicit action.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md
