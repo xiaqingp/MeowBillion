@@ -4,8 +4,8 @@
 
 - Project: MeowBillion
 - Approval: Approved as current baseline
-- Last updated: 2026-07-13
-- Based on PRD version/date: PRD.md 2026-07-13
+- Last updated: 2026-07-14
+- Based on PRD version/date: PRD.md 2026-07-14
 
 ## Overview
 
@@ -34,6 +34,14 @@ The design favors local-first storage, user-scoped rows, explicit review workflo
 - `app.js` owns one shared chart color map. Net Worth uses deep Tiffany; Allocation uses Cash `#238F9D`, Stock `#4A9B78`, Bond `#C89A43`, and Real Estate `#8875A8`.
 - Status colors remain semantic: success/income, danger/expense, warning/pending, and informational states are not collapsed into the brand color.
 - Theme changes do not alter layout, data, APIs, or responsive breakpoints.
+
+### Net Worth Driver Contract
+
+- Net Worth Trend renders before driver data; the latest date is prefetched asynchronously and other dates load on demand into a frontend date cache.
+- Account contributions compare the latest known values on or before the selected and previous Net Worth snapshot dates.
+- Asset deltas contribute directly; liability deltas contribute with reversed sign; manual assets participate through account value estimates.
+- The API returns top three positive and negative contributors, the sum across all explained items, and an explicit unattributed residual for aggregate Legacy history.
+- Desktop uses hover; touch uses a pinned external HTML tooltip. Driver failures do not prevent chart rendering.
 
 ## Data Model
 
@@ -76,6 +84,7 @@ Core APIs:
 - `GET /api/monthly_analysis`: monthly/yearly cash flow, category spending, and aligned monthly/yearly Income subcategory matrices; pending transactions are excluded.
 - Spending report cells drill into the existing Transaction view by setting date/category/subcategory filters client-side; blank subcategories use the internal `__uncategorized__` filter value, and no duplicate reporting API is used.
 - `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
+- `GET /api/net_worth_drivers?date=YYYY-MM-DD`: on-demand, user-scoped account/manual-asset contributions between a selected Net Worth snapshot and its actual preceding snapshot.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:
