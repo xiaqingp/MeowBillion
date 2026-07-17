@@ -4,8 +4,8 @@
 
 - Project: MeowBillion
 - Approval: Approved as current baseline
-- Last updated: 2026-07-14
-- Based on PRD version/date: PRD.md 2026-07-14
+- Last updated: 2026-07-16
+- Based on PRD version/date: PRD.md 2026-07-16
 
 ## Overview
 
@@ -58,7 +58,7 @@ Key tables:
 - `rental_properties`: Rental Property metadata.
 - `rental_property_match_rules`: property-scoped prediction rules.
 - `app_config`: categories, analysis rules, and app/user config.
-- `account_balances_history`, `allocation_history_snapshots`, `allocation_overrides`, `manual_assets`, `manual_asset_values`, `account_value_estimates`: portfolio/allocation state and history.
+- `account_balances_history`, `allocation_history_snapshots`, `account_allocation_snapshots`, `allocation_overrides`, `manual_assets`, `manual_asset_values`, `account_value_estimates`: portfolio/allocation state and history.
 
 Important contracts:
 
@@ -87,6 +87,7 @@ Core APIs:
 - Spending report cells drill into the existing Transaction view by setting date/category/subcategory filters client-side; blank subcategories use the internal `__uncategorized__` filter value, and no duplicate reporting API is used.
 - `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
 - `GET /api/net_worth_drivers?date=YYYY-MM-DD`: on-demand, user-scoped account/manual-asset contributions between a selected Net Worth snapshot and its actual preceding snapshot.
+- `GET /api/allocation_accounts` and `GET /api/allocation_history`: database-only Overview reads backed by sync-time account allocation snapshots.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:
@@ -115,6 +116,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 - Reviewed transactions cannot have assignment changed through assignment-only endpoint.
 - Invalid Trip/Property IDs return not found.
 - Plaid errors are surfaced in Plaid Settings and connection health.
+- Scheduled and manual sync fetch holdings once per investment Item and persist daily user-scoped allocation percentages. A failed holdings refresh leaves the latest successful investment snapshot unchanged. The explicit Account Allocation `Auto` action refreshes only that account's Item after clearing its manual override.
 - Sync should preserve reviewed user fields and only update raw Plaid fields/predictions where allowed.
 - Investment Items also call Plaid Investments Transactions. The first successful import starts at January 1 of the current year; later imports use a rolling 90-day window recorded in `sync_metadata`.
 - Only the approved investment-income subtype whitelist is written to `transactions`; Plaid investment transaction IDs provide idempotency, and reviewed rows retain user review fields.
@@ -133,6 +135,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 - Target workload is local household finance data.
 - Transaction list is paginated.
 - Filter options are cached on frontend load.
+- Overview allocation reads are side-effect free and do not call Plaid; holdings work belongs to scheduled/manual sync.
 - Overview and transaction loading have been optimized enough for local use, but large DB growth should be monitored.
 - SQLite concurrent writes are limited; avoid long transactions and uncontrolled parallel writes.
 

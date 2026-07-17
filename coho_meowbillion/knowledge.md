@@ -76,3 +76,10 @@
 - Scope: React Native Home screen and shared dashboard chart components.
 - Source: M4/T7 implementation and mobile tests.
 - Usage: Keep the chart summary compact and reuse `GET /api/net_worth_drivers?date=YYYY-MM-DD` for full details.
+
+## 2026-07-16 - Allocation snapshot ownership
+
+- Fact: Scheduled and manual Plaid sync write daily user-scoped rows to `account_allocation_snapshots`; Overview allocation endpoints only read the database.
+- Scope: Account Allocation, Portfolio Allocation, and Allocation Trend on Overview.
+- Source: M4/T8 implementation and allocation snapshot tests.
+- Usage: Fetch holdings during sync, preserve the latest successful investment snapshot on holdings failure, and never add Plaid side effects back to Overview reads.

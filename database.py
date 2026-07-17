@@ -16,6 +16,7 @@ USER_SCOPED_TABLES = [
     'manual_asset_values',
     'allocation_history_snapshots',
     'account_value_estimates',
+    'account_allocation_snapshots',
     'trips',
     'rental_properties',
     'rental_property_match_rules',
@@ -394,6 +395,22 @@ def init_db():
         )
         ''')
         conn.execute('''
+        CREATE TABLE IF NOT EXISTS account_allocation_snapshots (
+            user_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            value REAL DEFAULT 0,
+            cash_pct REAL DEFAULT 0,
+            stock_pct REAL DEFAULT 0,
+            bond_pct REAL DEFAULT 0,
+            real_estate_pct REAL DEFAULT 0,
+            source TEXT DEFAULT 'estimated',
+            holdings_count INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, account_id, date)
+        )
+        ''')
+        conn.execute('''
         CREATE TABLE IF NOT EXISTS trips (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -557,6 +574,7 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_plaid_tokens_user ON plaid_tokens(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_date ON account_balances_history(date DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_balances_history_user_date ON account_balances_history(user_id, date DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_account_allocation_user_date ON account_allocation_snapshots(user_id, date DESC, account_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trips_user_year ON trips(user_id, year, name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rental_properties_user_active ON rental_properties(user_id, active, name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rental_rules_property ON rental_property_match_rules(user_id, rental_property_id, enabled)")

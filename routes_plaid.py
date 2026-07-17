@@ -1066,6 +1066,190 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, configured_categor
 
     return new_count
 
+
+def _sync_account_balance(account):
+    balances = account_field(account, "balances") or {}
+    try:
+        return float(account_field(balances, "current") or account_field(account, "balance_current") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def persist_item_allocation_snapshots(cursor, user_id, accounts, holdings_payload, snapshot_date):
+    overrides = {
+        row["account_id"]: {
+            "Cash": row["cash_pct"],
+            "Stock": row["stock_pct"],
+            "Bond": row["bond_pct"],
+            "Real Estate": row["real_estate_pct"],
+        }
+        for row in cursor.execute(
+            """
+            SELECT account_id, cash_pct, stock_pct, bond_pct, real_estate_pct
+            FROM allocation_overrides
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchall()
+    }
+    securities = {
+        security.get("security_id"): security
+        for security in (holdings_payload.get("securities") or [])
+    }
+    buckets_by_account = {}
+    holdings_count_by_account = {}
+    for holding in holdings_payload.get("holdings") or []:
+        account_id = holding.get("account_id")
+        if not account_id:
+            continue
+        buckets = buckets_by_account.setdefault(account_id, empty_asset_buckets())
+        security = securities.get(holding.get("security_id"), {})
+        bucket = coerce_asset_bucket(classify_security_bucket(security))
+        buckets[bucket] += holding_market_value(holding, security)
+        holdings_count_by_account[account_id] = holdings_count_by_account.get(account_id, 0) + 1
+
+    saved_count = 0
+    for account in accounts:
+        account_id = account_field(account, "account_id")
+        if not account_id:
+            continue
+        balance = _sync_account_balance(account)
+        manual = overrides.get(account_id)
+        holdings_count = holdings_count_by_account.get(account_id, 0)
+        if manual:
+            percentages = normalize_percentages(manual)
+            source = "manual_override"
+        elif holdings_count:
+            summary = {
+                "name": account_field(account, "name"),
+                "official_name": account_field(account, "official_name"),
+                "type": account_field(account, "type"),
+                "subtype": account_field(account, "subtype"),
+                "balance_current": balance,
+                "categories": buckets_by_account.get(account_id) or empty_asset_buckets(),
+                "allocation_source": "holdings",
+                "allocation_warning": None,
+            }
+            normalize_account_asset_buckets(summary)
+            categories = summary["categories"]
+            total = asset_bucket_total(categories)
+            percentages = {
+                key: (float(categories.get(key) or 0.0) / total * 100.0 if total else 0.0)
+                for key in ASSET_BUCKETS
+            }
+            source = "holdings"
+        elif is_clear_cash_account(account):
+            percentages = normalize_percentages({"Cash": 100})
+            source = "cash_default"
+        else:
+            # Preserve the last successful investment snapshot when holdings are unavailable.
+            continue
+
+        cursor.execute(
+            """
+            INSERT INTO account_allocation_snapshots
+                (user_id, account_id, date, value, cash_pct, stock_pct, bond_pct,
+                 real_estate_pct, source, holdings_count, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, account_id, date) DO UPDATE SET
+                value = excluded.value,
+                cash_pct = excluded.cash_pct,
+                stock_pct = excluded.stock_pct,
+                bond_pct = excluded.bond_pct,
+                real_estate_pct = excluded.real_estate_pct,
+                source = excluded.source,
+                holdings_count = excluded.holdings_count,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                user_id,
+                account_id,
+                snapshot_date,
+                balance,
+                percentages["Cash"],
+                percentages["Stock"],
+                percentages["Bond"],
+                percentages["Real Estate"],
+                source,
+                holdings_count,
+            ),
+        )
+        saved_count += 1
+    return saved_count
+
+
+def sync_item_allocation_snapshots(client, cursor, user_id, access_token, item_id, accounts, snapshot_date):
+    investment_accounts = [account for account in accounts if is_investment_like_account(account)]
+    holdings_payload = {}
+    if investment_accounts:
+        from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
+        holdings_payload = client.investments_holdings_get(
+            InvestmentsHoldingsGetRequest(access_token=access_token)
+        ).to_dict()
+
+    saved_count = persist_item_allocation_snapshots(
+        cursor, user_id, accounts, holdings_payload, snapshot_date
+    )
+    holdings_count = len(holdings_payload.get("holdings") or [])
+    if investment_accounts:
+        cursor.execute(
+            """
+            UPDATE plaid_tokens
+            SET holdings_sync_status = ?, holdings_last_synced = ?
+            WHERE item_id = ? AND user_id = ?
+            """,
+            (
+                "synced" if holdings_count else "no_holdings",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                item_id,
+                user_id,
+            ),
+        )
+    return {"saved_count": saved_count, "holdings_count": holdings_count}
+
+
+def refresh_account_allocation_snapshot(user_id, account_id):
+    client = get_plaid_client(user_id)
+    if not client:
+        raise RuntimeError("Plaid client is not configured for this user.")
+
+    with get_db() as conn:
+        account = conn.execute(
+            "SELECT item_id FROM accounts WHERE user_id = ? AND account_id = ?",
+            (user_id, account_id),
+        ).fetchone()
+        if not account or not account["item_id"]:
+            raise RuntimeError("Linked account was not found.")
+        item_id = account["item_id"]
+        token = conn.execute(
+            "SELECT access_token FROM plaid_tokens WHERE user_id = ? AND item_id = ?",
+            (user_id, item_id),
+        ).fetchone()
+        if not token:
+            raise RuntimeError("Plaid connection was not found.")
+        accounts = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT account_id, name, official_name, type, subtype, balance_current
+                FROM accounts
+                WHERE user_id = ? AND item_id = ?
+                """,
+                (user_id, item_id),
+            ).fetchall()
+        ]
+        result = sync_item_allocation_snapshots(
+            client,
+            conn.cursor(),
+            user_id,
+            token["access_token"],
+            item_id,
+            accounts,
+            datetime.now().date().isoformat(),
+        )
+        conn.commit()
+        return result
+
 def perform_sync(user_id=None):
     """
     Core sync function that can be run by either the Flask endpoint or scheduler.
@@ -1162,6 +1346,33 @@ def perform_sync(user_id=None):
                     """,
                     (acc.get('account_id'), today_str, bal.get('current'), bal.get('available'), user_id)
                 )
+
+            try:
+                sync_item_allocation_snapshots(
+                    client,
+                    cursor,
+                    user_id,
+                    access_token,
+                    item_id,
+                    balance_data.get('accounts', []),
+                    today_str,
+                )
+            except Exception as holdings_err:
+                persist_item_allocation_snapshots(
+                    cursor, user_id, balance_data.get('accounts', []), {}, today_str
+                )
+                cursor.execute(
+                    """
+                    UPDATE plaid_tokens
+                    SET holdings_sync_status = 'failed'
+                    WHERE item_id = ? AND user_id = ?
+                    """,
+                    (item_id, user_id),
+                )
+                warnings.append({
+                    "scope": "holdings",
+                    "message": f"Holdings update failed; the last successful allocation was kept: {holdings_err}",
+                })
                 
             last_cursor = r['last_cursor'] or ''
             cursor_val = last_cursor
@@ -1239,6 +1450,8 @@ def perform_sync(user_id=None):
     
     conn.commit()
     conn.close()
+    ALLOCATION_CACHE["time"] = 0.0
+    ALLOCATION_CACHE["payload"] = None
     status = summarize_sync_results(succeeded_items, failed_items)
     return {
         "status": status,
@@ -2051,7 +2264,6 @@ def build_allocation_accounts_payload(use_cache=True):
                 return ALLOCATION_CACHE["payload"]
             return build_allocation_accounts_payload(use_cache=False)
 
-    client = get_plaid_client()
     overrides = load_allocation_overrides()
 
     try:
@@ -2066,95 +2278,35 @@ def build_allocation_accounts_payload(use_cache=True):
             (user_id,)
         )
         account_rows = [dict(r) for r in cursor.fetchall()]
-        cursor.execute("SELECT access_token, item_id, institution_name, status FROM plaid_tokens WHERE user_id = ?", (user_id,))
-        token_rows = [dict(r) for r in cursor.fetchall()]
+        snapshot_rows = cursor.execute(
+            """
+            SELECT s.account_id, s.date, s.cash_pct, s.stock_pct, s.bond_pct,
+                   s.real_estate_pct, s.source, s.holdings_count
+            FROM account_allocation_snapshots s
+            WHERE s.user_id = ?
+            ORDER BY s.date DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        legacy_estimates = cursor.execute(
+            """
+            SELECT e.account_id, e.date, e.cash_pct, e.stock_pct, e.bond_pct,
+                   e.real_estate_pct, e.source, 0 AS holdings_count
+            FROM account_value_estimates e
+            WHERE e.user_id = ?
+            ORDER BY e.date DESC
+            """,
+            (user_id,),
+        ).fetchall()
         conn.close()
     except Exception as db_err:
         raise RuntimeError(f"Database error: {db_err}") from db_err
 
-    accounts_by_id = {a['account_id']: a for a in account_rows}
-    investment_item_ids = {a.get('item_id') for a in account_rows if is_investment_like_account(a)}
-    account_buckets = {a['account_id']: empty_asset_buckets() for a in account_rows}
-    holdings_count_by_account = {a['account_id']: 0 for a in account_rows}
-
-    if client:
-        from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
-        for token in token_rows:
-            if token.get('status') == 'error_consent' or token.get('item_id') not in investment_item_ids:
-                continue
-            try:
-                res = client.investments_holdings_get(
-                    InvestmentsHoldingsGetRequest(access_token=token.get('access_token'))
-                ).to_dict()
-                holdings = res.get('holdings') or []
-                sec_map = {s['security_id']: s for s in (res.get('securities') or [])}
-                item_has_holdings = False
-                for h in holdings:
-                    account_id = h.get('account_id')
-                    if account_id not in accounts_by_id:
-                        continue
-                    security = sec_map.get(h.get('security_id'), {})
-                    bucket = coerce_asset_bucket(classify_security_bucket(security))
-                    value = holding_market_value(h, security)
-                    account_buckets[account_id][bucket] += value
-                    holdings_count_by_account[account_id] += 1
-                    item_has_holdings = True
-                
-                from datetime import datetime, timedelta
-                holdings_sync_status = 'synced' if item_has_holdings else 'no_holdings'
-                has_inv = token.get('item_id') in investment_item_ids
-                if not item_has_holdings and has_inv:
-                    created_at = None
-                    try:
-                        with get_db() as status_conn:
-                            status_cursor = status_conn.cursor()
-                            status_cursor.execute("SELECT created_at FROM plaid_tokens WHERE item_id = ? AND user_id = ?", (token.get('item_id'), user_id))
-                            row = status_cursor.fetchone()
-                            created_at = row[0] if row else None
-                    except Exception:
-                        pass
-                    if created_at:
-                        try:
-                            if datetime.now() - datetime.fromisoformat(created_at) < timedelta(minutes=15):
-                                holdings_sync_status = 'syncing'
-                        except Exception:
-                            pass
-                
-                try:
-                    with get_db() as status_conn:
-                        status_conn.execute(
-                            """
-                            UPDATE plaid_tokens
-                            SET status = 'active', error_message = NULL, holdings_sync_status = ?, holdings_last_synced = ?
-                            WHERE item_id = ? AND user_id = ?
-                            """,
-                            (holdings_sync_status, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), token.get('item_id'), user_id)
-                        )
-                        status_conn.commit()
-                except Exception as status_err:
-                    print(f"Error updating active holdings status in build_payload: {status_err}")
-            except Exception as holdings_err:
-                print(f"Skipping allocation holdings for token {token.get('item_id')}: {holdings_err}")
-                status = 'active'
-                holdings_sync_status = 'failed'
-                try:
-                    if hasattr(holdings_err, 'body'):
-                        err_body = json.loads(holdings_err.body)
-                        err_code = err_body.get('error_code')
-                        if err_code == 'ADDITIONAL_CONSENT_REQUIRED':
-                            status = 'error_consent'
-                            holdings_sync_status = 'error_consent'
-                        elif err_code == 'ITEM_LOGIN_REQUIRED':
-                            status = 'error_login'
-                            holdings_sync_status = 'error_login'
-                    with get_db() as status_conn:
-                        status_conn.execute(
-                            "UPDATE plaid_tokens SET status = ?, error_message = ?, holdings_sync_status = ? WHERE item_id = ? AND user_id = ?",
-                            (status, str(holdings_err), holdings_sync_status, token.get('item_id'), user_id)
-                        )
-                        status_conn.commit()
-                except Exception as status_err:
-                    print(f"Error updating holdings error status in build_payload: {status_err}")
+    allocation_snapshots = {}
+    for snapshot in [*snapshot_rows, *legacy_estimates]:
+        account_id = snapshot["account_id"]
+        if account_id not in allocation_snapshots:
+            allocation_snapshots[account_id] = dict(snapshot)
 
     rows = []
     totals = empty_asset_buckets()
@@ -2175,23 +2327,17 @@ def build_allocation_accounts_payload(use_cache=True):
             source = "manual_override"
             warning = None
         else:
-            categories = account_buckets.get(account_id) or empty_asset_buckets()
-            has_holdings = holdings_count_by_account.get(account_id, 0) > 0
-            if has_holdings:
-                account_summary = {
-                    "name": acc.get('name'),
-                    "official_name": acc.get('official_name'),
-                    "type": acc_type,
-                    "subtype": acc.get('subtype'),
-                    "balance_current": balance,
-                    "categories": categories,
-                    "allocation_source": "holdings",
-                    "allocation_warning": None
-                }
-                normalize_account_asset_buckets(account_summary)
-                categories = account_summary["categories"]
-                source = account_summary.get("allocation_source") or "holdings"
-                warning = account_summary.get("allocation_warning")
+            snapshot = allocation_snapshots.get(account_id)
+            if snapshot and snapshot.get("source") != "manual_override":
+                percentages = normalize_percentages({
+                    "Cash": snapshot.get("cash_pct"),
+                    "Stock": snapshot.get("stock_pct"),
+                    "Bond": snapshot.get("bond_pct"),
+                    "Real Estate": snapshot.get("real_estate_pct"),
+                })
+                categories = buckets_from_percentages(balance, percentages)
+                source = snapshot.get("source") or "estimated"
+                warning = None
             else:
                 if is_clear_cash_account(acc):
                     percentages = normalize_percentages({"Cash": 100})
@@ -2229,7 +2375,8 @@ def build_allocation_accounts_payload(use_cache=True):
             "percentages": {key: percentages.get(key, 0.0) for key in ASSET_BUCKETS},
             "source": source,
             "allocation_warning": warning,
-            "holdings_count": holdings_count_by_account.get(account_id, 0)
+            "holdings_count": int((allocation_snapshots.get(account_id) or {}).get("holdings_count") or 0),
+            "allocation_as_of": (allocation_snapshots.get(account_id) or {}).get("date"),
         })
 
     for row in load_manual_asset_rows():
@@ -2348,6 +2495,11 @@ def get_allocation_history():
             for row in allocation_payload.get("accounts", [])
             if row.get("source") != "manual_asset"
         }
+        manual_override_account_ids = {
+            row["account_id"]
+            for row in allocation_payload.get("accounts", [])
+            if row.get("source") == "manual_override"
+        }
         manual_asset_totals = empty_asset_buckets()
         for row in allocation_payload.get("accounts", []):
             if row.get("source") != "manual_asset":
@@ -2367,6 +2519,33 @@ def get_allocation_history():
                 """,
                 (user_id,)
             ).fetchall()
+            allocation_snapshot_rows = conn.execute(
+                """
+                SELECT account_id, date, cash_pct, stock_pct, bond_pct, real_estate_pct
+                FROM account_allocation_snapshots
+                WHERE user_id = ?
+                ORDER BY account_id, date ASC
+                """,
+                (user_id,),
+            ).fetchall()
+
+        allocation_snapshots_by_account = {}
+        for snapshot in allocation_snapshot_rows:
+            allocation_snapshots_by_account.setdefault(snapshot["account_id"], []).append(snapshot)
+
+        def allocation_percentages_for_date(account_id, date):
+            if account_id in manual_override_account_ids and date == datetime.now().date().isoformat():
+                return pct_by_account.get(account_id, normalize_percentages({"Cash": 100}))
+            candidates = allocation_snapshots_by_account.get(account_id) or []
+            snapshot = next((row for row in reversed(candidates) if row["date"] <= date), None)
+            if not snapshot:
+                return pct_by_account.get(account_id, normalize_percentages({"Cash": 100}))
+            return normalize_percentages({
+                "Cash": snapshot["cash_pct"],
+                "Stock": snapshot["stock_pct"],
+                "Bond": snapshot["bond_pct"],
+                "Real Estate": snapshot["real_estate_pct"],
+            })
 
         by_date = {row["date"]: row for row in load_allocation_history_snapshots()}
         for group in by_date.values():
@@ -2403,7 +2582,7 @@ def get_allocation_history():
             if row["type"] == "credit":
                 group["liabilities"] += balance
                 continue
-            pct = pct_by_account.get(row["account_id"], normalize_percentages({"Cash": 100}))
+            pct = allocation_percentages_for_date(row["account_id"], date)
             for key in ASSET_BUCKETS:
                 group[key] += balance * pct.get(key, 0.0) / 100.0
 
@@ -2669,9 +2848,12 @@ def allocation_overrides_api():
         else:
             overrides[account_id] = normalize_percentages(percentages)
         save_allocation_overrides(overrides)
+        refresh_result = None
+        if data.get('clear'):
+            refresh_result = refresh_account_allocation_snapshot(current_user_id(), account_id)
         ALLOCATION_CACHE["time"] = 0.0
         ALLOCATION_CACHE["payload"] = None
-        return jsonify({"status": "success", "overrides": overrides})
+        return jsonify({"status": "success", "overrides": overrides, "refresh": refresh_result})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

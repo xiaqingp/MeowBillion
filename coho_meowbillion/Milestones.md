@@ -4,7 +4,7 @@
 
 - Project: MeowBillion
 - Approval: Approved current baseline and forward milestone structure
-- Last updated: 2026-07-14
+- Last updated: 2026-07-16
 - Approved scope: Maintain current local-first app, fix bugs, improve UX, preserve tests, push every code change.
 
 ## Milestone Summary
@@ -125,6 +125,7 @@
 | T5 | Apply approved balanced Tiffany web theme and coordinated allocation palette | Done | `tests/test_tiffany_theme.py`; JS syntax checks; full unittest suite; desktop/iPad visual checks | 72 tests passed 2026-07-13; 1440x900 and 1024x768 auth surfaces verified; authenticated Overview follows approved mock and static chart contract |
 | T6 | Add on-demand Net Worth driver tooltip with Top 3 Up/Down account contributions | Done | Backend contribution/reconciliation tests; frontend tooltip contract test; JS syntax; full suite; real-data endpoint smoke check | 78 tests passed 2026-07-14; latest real snapshot reconciled at 100%; browser automation unavailable for final visual pass |
 | T7 | Apply balanced Tiffany colors and on-demand Net Worth drivers to mobile Overview | Done | Mobile unit tests; TypeScript check; Expo Android export | 31 tests passed 2026-07-14; TypeScript and Android export passed |
+| T8 | Persist allocation during sync and make Overview allocation database-only | Done | Allocation snapshot tests; full unittest suite; real sync and cold endpoint timing | 82 tests passed; 9 Items synced without warnings; cold allocation reads 4.8 ms and 7.5 ms on 2026-07-16 |
 
 #### Delivery Notes
 
@@ -174,3 +175,4 @@
 | 2026-07-14 | Split Net Worth hover and details | Restored the compact date/Net Worth hover and moved full Top 3 attribution to explicit click/tap in v0.1.26 | M4/T6 |
 | 2026-07-14 | Fixed Net Worth detail dismissal | Chart blank-space clicks and repeated clicks on the selected point now close the full detail panel in v0.1.27 | M4/T6 |
 | 2026-07-14 | Applied Overview uplift to mobile | Unified the balanced Tiffany palette and added tap-only Net Worth driver details in mobile v1.0.1 | M4/T7 |
+| 2026-07-16 | Moved holdings allocation work into sync | Persisted daily account allocation snapshots, retained last successful holdings on failure, and made Overview allocation DB-only in v0.1.28 | M4/T8 |

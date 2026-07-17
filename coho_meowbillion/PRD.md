@@ -5,7 +5,7 @@
 - Project: MeowBillion
 - Owner: surreal
 - Approval: Approved as current baseline
-- Last updated: 2026-07-14
+- Last updated: 2026-07-16
 
 ## Summary
 
@@ -68,6 +68,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Travel reports group by Trip ID and show net spending; inflow/refund transactions reduce spend.
 - Rental reports group by Rental Property ID and show property-level transactions, income, expense, monthly, and yearly summaries.
 - Overview shows net worth trend, allocation trend, portfolio allocation, and account allocation.
+- Plaid sync stores account allocation snapshots; Overview reads those snapshots locally and does not call Plaid while loading.
 - Net Worth Trend hover stays compact with date and Net Worth only; clicking/tapping a point opens its top three positive and negative account-level contributors plus any unattributed residual.
 
 ### UX Requirements
@@ -88,6 +89,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - User-scoped tables include Plaid tokens, accounts, transactions, balances, allocation data, manual assets, trips, rental properties, and rental rules.
 - Categories and subcategories are stored in DB, not JSON fallback.
 - Historical legacy data may exist for the primary user, but new users start without legacy assumptions.
+- The latest successful account allocation remains available when a later holdings refresh fails.
 
 ### Operational Requirements
 

@@ -63,3 +63,11 @@
 - Fix: Handle blank chart clicks explicitly and toggle the panel off when the selected point is clicked again.
 - Prevention: Pinned chart overlays need tested close paths for outside-page clicks, chart blank-space clicks, and repeated point clicks.
 - Affected docs: Lessons.md, Milestones.md
+
+## 2026-07-16 - Overview allocation latency
+
+- Issue: A cold Overview allocation load took about four seconds.
+- Cause: The read endpoint called Plaid Holdings serially for linked investment Items instead of reading sync results from local storage.
+- Fix: Persist daily account allocation snapshots during scheduled/manual sync and make Overview allocation endpoints database-only.
+- Prevention: Dashboard read endpoints must be side-effect free; external refresh work belongs to explicit or scheduled sync paths.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, knowledge.md
