@@ -32,6 +32,7 @@ def infer_transaction_classification_from_history(cursor, merchant, direction, m
           AND lower(COALESCE(direction, '')) = ?
           AND type IS NOT NULL
           AND TRIM(type) != ''
+        ORDER BY rowid ASC
         """.format(user_clause=user_clause),
         tuple(params)
     )
@@ -48,10 +49,8 @@ def infer_transaction_classification_from_history(cursor, merchant, direction, m
             matches.append((row_type, row_subtype))
 
     counts = Counter(matches)
-    ranked = counts.most_common(2)
+    ranked = counts.most_common(1)
     if not ranked or ranked[0][1] < min_count:
-        return None
-    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
         return None
     (learned_type, learned_subtype), winner_count = ranked[0]
     return {

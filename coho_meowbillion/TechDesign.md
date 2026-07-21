@@ -66,7 +66,7 @@ Important contracts:
 - `transactions.rental_property_id` links Rentals transactions to `rental_properties.id`.
 - If transaction type is not Travel/Rentals, both assignment fields should be empty.
 - Reviewed transactions are stable and should not be mutated by sync predictions, rental rules, or assignment changes.
-- Merchant-history classification is user-scoped by normalized merchant and direction. The unique most frequent Category/Subcategory pair wins only when that pair has at least three reviewed, posted examples; configured Category/Subcategory rules constrain the result.
+- Merchant-history classification is user-scoped by normalized merchant and direction. The most frequent Category/Subcategory pair wins when it has at least three reviewed, posted examples; a tie uses the first stored pair, and configured Category/Subcategory rules constrain the result.
 
 ## Interfaces and Contracts
 

@@ -76,6 +76,6 @@
 
 - Issue: One conflicting historical review disabled merchant learning, while some fallback paths could use another user's history or restore removed Categories.
 - Cause: History required every reviewed pair to match, scheduled sync did not load config by explicit user ID, and startup backfill omitted user/config constraints.
-- Fix: Select a unique most-frequent pair with at least three winning examples and enforce the owning user's Category/Subcategory config in every prediction path.
+- Fix: Select the most-frequent pair with at least three winning examples, use the first stored pair on a tie, and enforce the owning user's Category/Subcategory config in every prediction path.
 - Prevention: Every classifier entry point must receive explicit user-scoped configuration, and startup migrations must carry `user_id` through reads and writes.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, knowledge.md

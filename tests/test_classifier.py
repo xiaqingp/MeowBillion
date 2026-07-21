@@ -66,7 +66,7 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
         self.assertEqual(learned["match_count"], 3)
         self.assertEqual(learned["total_count"], 5)
 
-    def test_rejects_tied_history(self):
+    def test_tied_history_uses_first_seen_combination(self):
         conn = make_conn()
         rows = [
             (f"shopping_{idx}", "Amazon", "Shopping", "", "outflow", 1)
@@ -77,7 +77,10 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
         ]
         conn.executemany("INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)", rows)
 
-        self.assertIsNone(infer_transaction_classification_from_history(conn.cursor(), "Amazon", "outflow"))
+        learned = infer_transaction_classification_from_history(conn.cursor(), "Amazon", "outflow")
+
+        self.assertEqual((learned["type"], learned["subtype"]), ("Shopping", ""))
+        self.assertEqual(learned["match_count"], 3)
 
     def test_normalizes_punctuation_and_spacing(self):
         self.assertEqual(normalize_merchant_key(" Trader-Joe's  #123 "), "trader joes 123")

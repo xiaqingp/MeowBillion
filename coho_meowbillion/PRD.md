@@ -58,7 +58,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Transaction filter selections survive a browser refresh within the current tab and remain isolated by user.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
-- Merchant-history prediction requires a unique most-frequent reviewed Category/Subcategory combination with at least three winning examples; ties do not predict.
+- Merchant-history prediction uses the most-frequent reviewed Category/Subcategory combination with at least three winning examples; a first-place tie uses the first historically stored combination.
 - Scheduled sync, manual sync, review-time propagation, and startup backfill all use the owning user's Category/Subcategory configuration.
 - Plaid investment income imports into Transactions for `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend` only; other investment activity remains excluded.
 - Imported investment income maps to `Income / Interest` or `Income / Dividend`, remains unreviewed, and preserves the original Plaid subtype for future analysis.
