@@ -83,3 +83,10 @@
 - Scope: Account Allocation, Portfolio Allocation, and Allocation Trend on Overview.
 - Source: M4/T8 implementation and allocation snapshot tests.
 - Usage: Fetch holdings during sync, preserve the latest successful investment snapshot on holdings failure, and never add Plaid side effects back to Overview reads.
+
+## 2026-07-20 - Merchant-history classification
+
+- Fact: The unique most frequent reviewed Category/Subcategory pair wins when the winning pair has at least three posted examples for the same normalized merchant and direction.
+- Scope: Plaid sync prediction, review-time propagation, and startup backfill.
+- Source: M2/T4 implementation and regression tests.
+- Usage: Always scope history and Category/Subcategory config by `user_id`; return no history prediction on a first-place tie.

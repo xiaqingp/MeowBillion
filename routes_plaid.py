@@ -848,7 +848,7 @@ def fetch_plaid_transaction_updates(client, access_token, cursor_val):
         "next_cursor": res_dict.get("next_cursor", "")
     }
 
-def apply_plaid_transaction_updates(cursor, user_id, updates, configured_categories):
+def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
     import datetime
 
     added = updates.get("added", [])
@@ -907,7 +907,14 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, configured_categor
         is_income = amount < 0
         direction = "inflow" if is_income else "outflow"
         prediction = predict_transaction_classification(
-            cursor, primary, detailed, merchant, direction, configured_categories, user_id=user_id
+            cursor,
+            primary,
+            detailed,
+            merchant,
+            direction,
+            category_config.get('categories', []),
+            category_config.get('rules', {}),
+            user_id=user_id,
         )
         custom_type = prediction["type"]
         custom_subtype = prediction.get("subtype", "")
@@ -1282,7 +1289,7 @@ def perform_sync(user_id=None):
     new_tx_count = 0
     succeeded_items = []
     failed_items = []
-    configured_categories = load_categories_config_from_db().get('categories', [])
+    category_config = load_categories_config_from_db(user_id=user_id)
     
     for r in rows:
         access_token = r['access_token']
@@ -1380,7 +1387,7 @@ def perform_sync(user_id=None):
             
             while has_more:
                 updates = fetch_plaid_transaction_updates(client, access_token, cursor_val)
-                applied_count = apply_plaid_transaction_updates(cursor, user_id, updates, configured_categories)
+                applied_count = apply_plaid_transaction_updates(cursor, user_id, updates, category_config)
                 new_tx_count += applied_count
                 item_new_count += applied_count
                 has_more = updates["has_more"]

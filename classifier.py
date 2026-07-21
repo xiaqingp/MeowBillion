@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 
 
 def normalize_merchant_key(merchant):
@@ -46,20 +47,47 @@ def infer_transaction_classification_from_history(cursor, merchant, direction, m
         if row_type:
             matches.append((row_type, row_subtype))
 
-    if len(matches) < min_count:
+    counts = Counter(matches)
+    ranked = counts.most_common(2)
+    if not ranked or ranked[0][1] < min_count:
         return None
-    unique_pairs = set(matches)
-    if len(unique_pairs) != 1:
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
         return None
-    learned_type, learned_subtype = matches[0]
+    (learned_type, learned_subtype), winner_count = ranked[0]
     return {
         "type": learned_type,
         "subtype": learned_subtype,
         "source": "history",
         "confidence": 0.95,
-        "reason": f"Learned from {len(matches)} consistent reviewed transactions.",
-        "match_count": len(matches)
+        "reason": f"Learned from the most common reviewed classification ({winner_count} of {len(matches)}).",
+        "match_count": winner_count,
+        "total_count": len(matches)
     }
+
+
+def constrain_classification_to_config(classification, categories, category_rules=None):
+    result = dict(classification or {})
+    original_type = (result.get("type") or "Other").strip()
+    constrained_type = constrain_category_to_config(original_type, categories)
+    result["type"] = constrained_type
+    if constrained_type.lower() != original_type.lower():
+        result["subtype"] = ""
+    elif category_rules is not None and result.get("subtype"):
+        configured_subtypes = next(
+            (
+                values
+                for category, values in category_rules.items()
+                if str(category).strip().lower() == constrained_type.lower()
+            ),
+            [],
+        )
+        by_lower = {
+            str(value).strip().lower(): str(value).strip()
+            for value in configured_subtypes
+            if str(value).strip()
+        }
+        result["subtype"] = by_lower.get(str(result["subtype"]).strip().lower(), "")
+    return result
 
 
 def predict_custom_type(plaid_primary, plaid_detailed, merchant, is_income):
@@ -100,10 +128,10 @@ def predict_custom_type(plaid_primary, plaid_detailed, merchant, is_income):
     return 'Other'
 
 
-def predict_transaction_classification(cursor, plaid_primary, plaid_detailed, merchant, direction, categories, user_id=None):
+def predict_transaction_classification(cursor, plaid_primary, plaid_detailed, merchant, direction, categories, category_rules=None, user_id=None):
     learned = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
     if learned:
-        return learned
+        return constrain_classification_to_config(learned, categories, category_rules)
 
     predicted = constrain_category_to_config(
         predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == "inflow"),

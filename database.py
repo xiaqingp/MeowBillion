@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import uuid
-from classifier import infer_transaction_classification_from_history, predict_custom_type
+from classifier import constrain_classification_to_config, constrain_category_to_config, infer_transaction_classification_from_history, predict_custom_type
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finance.db')
 
@@ -530,10 +530,25 @@ def init_db():
         conn.execute("UPDATE transactions SET bpay = 0.0 WHERE bpay IS NULL")
         
         # Retroactively predict and update category Types for unreviewed, non-legacy records only (if type is missing or empty)
-        cursor.execute("SELECT transaction_id, categories, merchant, direction FROM transactions WHERE reviewed = 0 AND imported_from_legacy = 0 AND (type IS NULL OR type = '')")
+        cursor.execute("SELECT transaction_id, categories, merchant, direction, user_id FROM transactions WHERE reviewed = 0 AND imported_from_legacy = 0 AND (type IS NULL OR type = '')")
         existing_txs = cursor.fetchall()
+        category_cache = {}
         for r in existing_txs:
-            tx_id, cats_json, merchant, direction = r
+            tx_id, cats_json, merchant, direction, user_id = r
+            if user_id not in category_cache:
+                config_key = f"{user_id}:categories_config" if user_id else "categories_config"
+                config_row = cursor.execute(
+                    "SELECT value FROM app_config WHERE key = ?",
+                    (config_key,),
+                ).fetchone()
+                try:
+                    category_config = json.loads(config_row["value"] if config_row else "{}")
+                except (TypeError, ValueError):
+                    category_config = {}
+                category_config["categories"] = category_config.get("categories") or ["Internal Transfer", "Other", "Rentals", "Travel"]
+                category_cache[user_id] = category_config
+            category_config = category_cache[user_id]
+            configured_categories = category_config["categories"]
             plaid_primary = 'OTHER'
             plaid_detailed = 'OTHER'
             try:
@@ -544,22 +559,30 @@ def init_db():
                     plaid_detailed = cats[1]
             except Exception as ex:
                 pass
-            learned = infer_transaction_classification_from_history(cursor, merchant, direction)
+            learned = infer_transaction_classification_from_history(
+                cursor, merchant, direction, user_id=user_id
+            )
             if learned:
+                learned = constrain_classification_to_config(
+                    learned, configured_categories, category_config.get("rules", {})
+                )
                 conn.execute(
                     "UPDATE transactions SET type = ?, subtype = ? WHERE transaction_id = ?",
                     (learned["type"], learned["subtype"], tx_id)
                 )
             else:
-                predicted = predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == 'inflow')
+                predicted = constrain_category_to_config(
+                    predict_custom_type(plaid_primary, plaid_detailed, merchant, direction == 'inflow'),
+                    configured_categories,
+                )
                 conn.execute("UPDATE transactions SET type = ? WHERE transaction_id = ?", (predicted, tx_id))
             
         # 5. Automatically detect and apply 'Internal Transfer' type for all unreviewed transactions (excluding legacy/manual ones)
-        cursor.execute("SELECT transaction_id, date, amount, direction, account_name FROM transactions WHERE reviewed = 0 AND imported_from_legacy = 0 AND account_name != 'Legacy'")
+        cursor.execute("SELECT transaction_id, date, amount, direction, account_name, user_id FROM transactions WHERE reviewed = 0 AND imported_from_legacy = 0 AND account_name != 'Legacy'")
         all_unreviewed = cursor.fetchall()
         for r in all_unreviewed:
-            tx_id, date, amount, direction, account_name = r
-            detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name)
+            tx_id, date, amount, direction, account_name, user_id = r
+            detect_and_apply_transfer_type(cursor, tx_id, date, amount, direction, account_name, user_id=user_id)
 
         # Create indexes after schema upgrades so a brand-new empty database has every indexed column.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC, transaction_id DESC)")

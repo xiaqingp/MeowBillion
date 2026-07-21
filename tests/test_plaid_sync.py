@@ -83,7 +83,9 @@ class PlaidSyncSummaryTests(unittest.TestCase):
                 "personal_finance_category": {"primary": "GENERAL_MERCHANDISE", "detailed": "GENERAL_MERCHANDISE_OTHER"}
             }]
         }
-        count = apply_plaid_transaction_updates(conn.cursor(), "u1", updates, ["Travel", "Other"])
+        count = apply_plaid_transaction_updates(
+            conn.cursor(), "u1", updates, {"categories": ["Travel", "Other"], "rules": {}}
+        )
         row = conn.execute("SELECT * FROM transactions WHERE transaction_id = 'tx1'").fetchone()
 
         self.assertEqual(count, 0)

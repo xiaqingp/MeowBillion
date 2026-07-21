@@ -8,7 +8,7 @@ from flask import Blueprint, request, jsonify
 from database import get_db
 from auth import current_user_id
 from routes_config import load_analysis_rules_config_from_db, load_categories_config_from_db
-from classifier import infer_transaction_classification_from_history, normalize_merchant_key
+from classifier import constrain_classification_to_config, infer_transaction_classification_from_history, normalize_merchant_key
 
 transactions_bp = Blueprint('transactions', __name__)
 
@@ -35,10 +35,11 @@ def get_analysis_rules():
 def configured_category_key(rules, section, fallback):
     return str((rules.get(section) or {}).get("category") or fallback).strip().lower()
 
-def apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id):
+def apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id, configured_categories, category_rules=None):
     learned = infer_transaction_classification_from_history(cursor, merchant, direction, user_id=user_id)
     if not learned:
         return 0
+    learned = constrain_classification_to_config(learned, configured_categories, category_rules)
 
     merchant_key = normalize_merchant_key(merchant)
     if not merchant_key:
@@ -1036,7 +1037,8 @@ def update_transaction():
         
         if not tx_id:
             return jsonify({"error": "Missing transaction_id"}), 400
-            
+
+        categories_config = load_categories_config_from_db(user_id=user_id)
         conn = get_db()
         cursor = conn.cursor()
         
@@ -1101,7 +1103,14 @@ def update_transaction():
             """,
             (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, tx_id, user_id)
         )
-        auto_applied_count = apply_stable_history_to_unreviewed(cursor, merchant, direction, user_id)
+        auto_applied_count = apply_stable_history_to_unreviewed(
+            cursor,
+            merchant,
+            direction,
+            user_id,
+            categories_config.get('categories', []),
+            categories_config.get('rules', {}),
+        )
         conn.commit()
         conn.close()
         return jsonify({"status": "success", "auto_applied_count": auto_applied_count})

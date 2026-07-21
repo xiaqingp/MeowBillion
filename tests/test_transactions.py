@@ -48,7 +48,9 @@ class StableHistoryAutoApplyTests(unittest.TestCase):
             rows
         )
 
-        count = apply_stable_history_to_unreviewed(conn.cursor(), "Store A", "outflow", "u1")
+        count = apply_stable_history_to_unreviewed(
+            conn.cursor(), "Store A", "outflow", "u1", ["Other", "Travel"]
+        )
 
         self.assertEqual(count, 1)
         updated = conn.execute("SELECT type, subtype, reviewed FROM transactions WHERE transaction_id='u1'").fetchone()
@@ -57,6 +59,32 @@ class StableHistoryAutoApplyTests(unittest.TestCase):
         self.assertEqual((updated["type"], updated["subtype"], updated["reviewed"]), ("Travel", "Flight", 0))
         self.assertEqual((pending["type"], pending["reviewed"]), ("Other", 0))
         self.assertEqual(other_direction["type"], "Other")
+
+    def test_auto_apply_cannot_restore_deleted_category(self):
+        conn = make_conn()
+        for idx in range(3):
+            conn.execute(
+                """
+                INSERT INTO transactions
+                (transaction_id, merchant, type, subtype, direction, reviewed, pending, user_id)
+                VALUES (?, 'Old Store', 'Deleted Category', 'Old Subtype', 'outflow', 1, 0, 'u1')
+                """,
+                (f"r{idx}",),
+            )
+        conn.execute(
+            """
+            INSERT INTO transactions
+            (transaction_id, merchant, type, subtype, direction, reviewed, pending, user_id)
+            VALUES ('target', 'Old Store', 'Other', '', 'outflow', 0, 0, 'u1')
+            """
+        )
+
+        apply_stable_history_to_unreviewed(
+            conn.cursor(), "Old Store", "outflow", "u1", ["Other", "Travel"]
+        )
+
+        target = conn.execute("SELECT type, subtype FROM transactions WHERE transaction_id='target'").fetchone()
+        self.assertEqual((target["type"], target["subtype"]), ("Other", ""))
 
 
 if __name__ == "__main__":

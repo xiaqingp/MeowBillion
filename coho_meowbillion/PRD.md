@@ -5,7 +5,7 @@
 - Project: MeowBillion
 - Owner: surreal
 - Approval: Approved as current baseline
-- Last updated: 2026-07-16
+- Last updated: 2026-07-20
 
 ## Summary
 
@@ -23,6 +23,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Keep each user's financial data isolated behind login.
 - Let every user configure their own Plaid API credentials and linked institutions.
 - Make transaction review efficient and consistent with user-defined categories and subcategories.
+- Learn recurring merchant classifications from each user's most frequently reviewed Category/Subcategory combination without restoring deleted configuration values.
 - Support structured Travel Trip and Rental Property assignment instead of relying on notes as grouping keys.
 - Preserve historical reporting while allowing manual correction.
 - Keep sensitive data and secrets out of Git.
@@ -57,6 +58,8 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Transaction filter selections survive a browser refresh within the current tab and remain isolated by user.
 - Pending transactions are visible but not reviewable.
 - Reviewed transactions are locked until de-reviewed, including Trip/Property assignment.
+- Merchant-history prediction requires a unique most-frequent reviewed Category/Subcategory combination with at least three winning examples; ties do not predict.
+- Scheduled sync, manual sync, review-time propagation, and startup backfill all use the owning user's Category/Subcategory configuration.
 - Plaid investment income imports into Transactions for `interest`, `interest receivable`, `dividend`, `qualified dividend`, and `non-qualified dividend` only; other investment activity remains excluded.
 - Imported investment income maps to `Income / Interest` or `Income / Dividend`, remains unreviewed, and preserves the original Plaid subtype for future analysis.
 - Spending shows monthly and yearly Income totals broken down by subcategory, excluding pending transactions.

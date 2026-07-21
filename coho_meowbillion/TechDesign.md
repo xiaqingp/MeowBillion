@@ -4,8 +4,8 @@
 
 - Project: MeowBillion
 - Approval: Approved as current baseline
-- Last updated: 2026-07-16
-- Based on PRD version/date: PRD.md 2026-07-16
+- Last updated: 2026-07-20
+- Based on PRD version/date: PRD.md 2026-07-20
 
 ## Overview
 
@@ -66,6 +66,7 @@ Important contracts:
 - `transactions.rental_property_id` links Rentals transactions to `rental_properties.id`.
 - If transaction type is not Travel/Rentals, both assignment fields should be empty.
 - Reviewed transactions are stable and should not be mutated by sync predictions, rental rules, or assignment changes.
+- Merchant-history classification is user-scoped by normalized merchant and direction. The unique most frequent Category/Subcategory pair wins only when that pair has at least three reviewed, posted examples; configured Category/Subcategory rules constrain the result.
 
 ## Interfaces and Contracts
 
@@ -118,6 +119,7 @@ python -m py_compile database.py routes_metadata.py routes_transactions.py route
 - Plaid errors are surfaced in Plaid Settings and connection health.
 - Scheduled and manual sync fetch holdings once per investment Item and persist daily user-scoped allocation percentages. A failed holdings refresh leaves the latest successful investment snapshot unchanged. The explicit Account Allocation `Auto` action refreshes only that account's Item after clearing its manual override.
 - Sync should preserve reviewed user fields and only update raw Plaid fields/predictions where allowed.
+- Scheduled sync loads Categories explicitly by `user_id`; review-time propagation reads configuration before opening the transaction write, avoiding nested SQLite write-lock waits.
 - Investment Items also call Plaid Investments Transactions. The first successful import starts at January 1 of the current year; later imports use a rolling 90-day window recorded in `sync_metadata`.
 - Only the approved investment-income subtype whitelist is written to `transactions`; Plaid investment transaction IDs provide idempotency, and reviewed rows retain user review fields.
 

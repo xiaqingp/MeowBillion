@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 import database
-from routes_config import load_analysis_rules_config_from_db, load_categories_config_from_db
+from routes_config import load_analysis_rules_config_from_db, load_categories_config_from_db, save_categories_config_to_db
 
 
 class ZeroStartTests(unittest.TestCase):
@@ -21,6 +21,26 @@ class ZeroStartTests(unittest.TestCase):
                 self.assertEqual(analysis_rules["travel"]["category"], "Travel")
                 self.assertEqual(analysis_rules["rentals"]["category"], "Rentals")
                 self.assertTrue(os.path.exists(database.DB_FILE))
+        finally:
+            database.DB_FILE = original_db_file
+
+    def test_explicit_user_config_loads_without_request_context(self):
+        original_db_file = database.DB_FILE
+        try:
+            with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+                database.DB_FILE = os.path.join(tmpdir, "finance.db")
+                database.init_db()
+                with database.get_db() as conn:
+                    save_categories_config_to_db(
+                        conn,
+                        {"categories": ["Other", "Travel"], "rules": {"Travel": ["Flight"]}},
+                        user_id="u1",
+                    )
+
+                config = load_categories_config_from_db(user_id="u1")
+
+                self.assertEqual(config["categories"], ["Other", "Travel"])
+                self.assertEqual(config["rules"]["Travel"], ["Flight"])
         finally:
             database.DB_FILE = original_db_file
 

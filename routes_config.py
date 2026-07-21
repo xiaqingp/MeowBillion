@@ -95,7 +95,7 @@ def normalize_categories_config(data):
     }
 
 
-def save_categories_config_to_db(conn, data):
+def save_categories_config_to_db(conn, data, user_id=None):
     normalized = normalize_categories_config(data)
     ensure_app_config_table(conn)
     conn.execute(
@@ -106,7 +106,7 @@ def save_categories_config_to_db(conn, data):
             value = excluded.value,
             updated_at = CURRENT_TIMESTAMP
         """,
-        (scoped_key(CATEGORY_CONFIG_KEY), json.dumps(normalized, ensure_ascii=False))
+        (scoped_key(CATEGORY_CONFIG_KEY, user_id), json.dumps(normalized, ensure_ascii=False))
     )
     conn.commit()
     return normalized
@@ -159,17 +159,17 @@ def load_analysis_rules_config_from_db():
         conn.close()
 
 
-def load_categories_config_from_db():
+def load_categories_config_from_db(user_id=None):
     conn = get_db()
     try:
         ensure_app_config_table(conn)
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM app_config WHERE key = ?", (scoped_key(CATEGORY_CONFIG_KEY),))
+        cursor.execute("SELECT value FROM app_config WHERE key = ?", (scoped_key(CATEGORY_CONFIG_KEY, user_id),))
         row = cursor.fetchone()
         if row:
             return normalize_categories_config(json.loads(row['value']))
 
-        return save_categories_config_to_db(conn, DEFAULT_CATEGORIES_CONFIG)
+        return save_categories_config_to_db(conn, DEFAULT_CATEGORIES_CONFIG, user_id=user_id)
     finally:
         conn.close()
 

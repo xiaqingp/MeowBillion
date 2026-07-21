@@ -4,7 +4,7 @@
 
 - Project: MeowBillion
 - Approval: Approved current baseline and forward milestone structure
-- Last updated: 2026-07-16
+- Last updated: 2026-07-20
 - Approved scope: Maintain current local-first app, fix bugs, improve UX, preserve tests, push every code change.
 
 ## Milestone Summary
@@ -61,7 +61,7 @@
 | T1 | Enforce reviewed lock for Trip/Property assignment | Done | `tests/test_transaction_assignment.py` | Passed previously |
 | T2 | Add Trip/Property transaction filter | Done | `tests/test_transaction_assignment.py` | Passed previously |
 | T3 | Compact transaction filter UI | Done | Manual static load check | Passed previously |
-| T4 | Continue improving prediction accuracy | Not started | Add classifier/regression tests per bug | Pending |
+| T4 | Use user-scoped majority history while enforcing configured Categories/Subcategories | Done | Classifier, propagation, startup migration, Plaid sync, and full-suite regression tests | 88 tests passed 2026-07-20 |
 | T5 | Add Spending report transaction drill-down | Done | `tests/test_spending_drilldown_ui.py`; JS syntax check | Passed 2026-07-12 |
 | T6 | Add one-click Transaction filter reset | Done | `tests/test_transaction_filter_reset_ui.py`; JS syntax check | Passed 2026-07-12 |
 | T7 | Import approved Plaid interest/dividend investment transactions | Done | `tests/test_investment_income_sync.py`; full unittest suite | 61 tests passed 2026-07-13 |
@@ -176,3 +176,4 @@
 | 2026-07-14 | Fixed Net Worth detail dismissal | Chart blank-space clicks and repeated clicks on the selected point now close the full detail panel in v0.1.27 | M4/T6 |
 | 2026-07-14 | Applied Overview uplift to mobile | Unified the balanced Tiffany palette and added tap-only Net Worth driver details in mobile v1.0.1 | M4/T7 |
 | 2026-07-16 | Moved holdings allocation work into sync | Persisted daily account allocation snapshots, retained last successful holdings on failure, and made Overview allocation DB-only in v0.1.28 | M4/T8 |
+| 2026-07-20 | Corrected merchant-history prediction | Unique most-frequent reviewed classification now wins; all prediction/backfill paths enforce the owning user's configuration in v0.1.29 | M2/T4 |

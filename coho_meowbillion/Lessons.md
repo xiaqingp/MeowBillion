@@ -71,3 +71,11 @@
 - Fix: Persist daily account allocation snapshots during scheduled/manual sync and make Overview allocation endpoints database-only.
 - Prevention: Dashboard read endpoints must be side-effect free; external refresh work belongs to explicit or scheduled sync paths.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, knowledge.md
+
+## 2026-07-20 - Category prediction consistency
+
+- Issue: One conflicting historical review disabled merchant learning, while some fallback paths could use another user's history or restore removed Categories.
+- Cause: History required every reviewed pair to match, scheduled sync did not load config by explicit user ID, and startup backfill omitted user/config constraints.
+- Fix: Select a unique most-frequent pair with at least three winning examples and enforce the owning user's Category/Subcategory config in every prediction path.
+- Prevention: Every classifier entry point must receive explicit user-scoped configuration, and startup migrations must carry `user_id` through reads and writes.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, knowledge.md

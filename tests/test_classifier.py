@@ -49,12 +49,31 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
 
         self.assertIsNone(infer_transaction_classification_from_history(conn.cursor(), "Costco", "outflow"))
 
-    def test_rejects_conflicting_history(self):
+    def test_uses_most_frequent_history_combination(self):
         conn = make_conn()
         rows = [
             ("tx_1", "Amazon", "Shopping", "", "outflow", 1),
             ("tx_2", "Amazon", "Shopping", "", "outflow", 1),
-            ("tx_3", "Amazon", "Subscription", "", "outflow", 1),
+            ("tx_3", "Amazon", "Shopping", "", "outflow", 1),
+            ("tx_4", "Amazon", "Subscription", "", "outflow", 1),
+            ("tx_5", "Amazon", "Subscription", "", "outflow", 1),
+        ]
+        conn.executemany("INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)", rows)
+
+        learned = infer_transaction_classification_from_history(conn.cursor(), "Amazon", "outflow")
+
+        self.assertEqual((learned["type"], learned["subtype"]), ("Shopping", ""))
+        self.assertEqual(learned["match_count"], 3)
+        self.assertEqual(learned["total_count"], 5)
+
+    def test_rejects_tied_history(self):
+        conn = make_conn()
+        rows = [
+            (f"shopping_{idx}", "Amazon", "Shopping", "", "outflow", 1)
+            for idx in range(3)
+        ] + [
+            (f"subscription_{idx}", "Amazon", "Subscription", "", "outflow", 1)
+            for idx in range(3)
         ]
         conn.executemany("INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)", rows)
 
@@ -84,6 +103,47 @@ class MerchantHistoryClassificationTests(unittest.TestCase):
 
         self.assertEqual(prediction["type"], "Other")
         self.assertEqual(prediction["source"], "fallback")
+
+    def test_history_prediction_is_constrained_to_user_categories(self):
+        conn = make_conn()
+        for idx in range(3):
+            conn.execute(
+                "INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)",
+                (f"tx_{idx}", "Old Store", "Deleted Category", "Old Subtype", "outflow", 1),
+            )
+
+        prediction = predict_transaction_classification(
+            conn.cursor(),
+            "OTHER",
+            "OTHER",
+            "Old Store",
+            "outflow",
+            ["Other", "Travel"],
+            {"Travel": ["Flight"]},
+        )
+
+        self.assertEqual(prediction["type"], "Other")
+        self.assertEqual(prediction["subtype"], "")
+
+    def test_history_subcategory_is_constrained_to_user_rules(self):
+        conn = make_conn()
+        for idx in range(3):
+            conn.execute(
+                "INSERT INTO transactions (transaction_id, merchant, type, subtype, direction, reviewed) VALUES (?, ?, ?, ?, ?, ?)",
+                (f"tx_{idx}", "Airline", "Travel", "Deleted Subtype", "outflow", 1),
+            )
+
+        prediction = predict_transaction_classification(
+            conn.cursor(),
+            "TRAVEL",
+            "TRAVEL_FLIGHTS",
+            "Airline",
+            "outflow",
+            ["Other", "Travel"],
+            {"Travel": ["Flight"]},
+        )
+
+        self.assertEqual((prediction["type"], prediction["subtype"]), ("Travel", ""))
 
     def test_hardcoded_merchant_rules_removed(self):
         conn = make_conn()
