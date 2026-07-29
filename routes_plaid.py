@@ -701,6 +701,27 @@ def summarize_sync_results(succeeded_items, failed_items):
         return "failed"
     return "success"
 
+
+def record_balance_sync_result(cursor, user_id, access_token, succeeded, sync_time, error_message=None):
+    cursor.execute(
+        """
+        UPDATE plaid_tokens
+        SET balance_sync_status = ?,
+            balance_last_synced = CASE WHEN ? THEN ? ELSE balance_last_synced END,
+            balance_error_message = ?
+        WHERE access_token = ? AND user_id = ?
+        """,
+        (
+            "synced" if succeeded else "failed",
+            1 if succeeded else 0,
+            sync_time,
+            None if succeeded else str(error_message or "Balance sync failed"),
+            access_token,
+            user_id,
+        ),
+    )
+
+
 def get_investment_income_start_date(cursor, user_id, item_id, today):
     key = f"{user_id}:{item_id}:investment_income_last_sync_date"
     row = cursor.execute("SELECT value FROM sync_metadata WHERE key = ?", (key,)).fetchone()
@@ -1300,16 +1321,23 @@ def perform_sync(user_id=None):
         
         # Fetch and update current balances for these linked accounts
         try:
+            balance_succeeded = True
+            balance_error = None
             try:
                 bal_req = AccountsBalanceGetRequest(access_token=access_token)
                 bal_res = client.accounts_balance_get(bal_req)
                 balance_data = bal_res.to_dict()
             except Exception as balance_err:
+                balance_succeeded = False
+                balance_error = balance_err
                 balance_data = {"item": {"item_id": item_id}, "accounts": []}
                 warnings.append({
                     "scope": "balance",
                     "message": f"Balance update failed, but transactions sync will continue: {balance_err}"
                 })
+            record_balance_sync_result(
+                cursor, user_id, access_token, balance_succeeded, sync_time_str, balance_error
+            )
 
             item_id = balance_data.get('item', {}).get('item_id', item_id)
             inst_id = balance_data.get('item', {}).get('institution_id')
@@ -1805,7 +1833,16 @@ def get_connections():
         user_id = current_user_id()
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT item_id, institution_name, status, error_message, last_cursor, holdings_sync_status, holdings_last_synced FROM plaid_tokens WHERE user_id = ?", (user_id,))
+        cursor.execute(
+            """
+            SELECT item_id, institution_name, status, error_message, last_cursor,
+                   holdings_sync_status, holdings_last_synced, balance_sync_status,
+                   balance_last_synced, balance_error_message
+            FROM plaid_tokens
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
         rows = [dict(r) for r in cursor.fetchall()]
         cursor.execute(
             """
@@ -1817,6 +1854,9 @@ def get_connections():
                 NULL AS last_cursor,
                 NULL AS holdings_sync_status,
                 NULL AS holdings_last_synced,
+                NULL AS balance_sync_status,
+                NULL AS balance_last_synced,
+                NULL AS balance_error_message,
                 1 AS is_cached_only,
                 COUNT(DISTINCT a.account_id) AS cached_accounts_count,
                 COUNT(t.transaction_id) AS cached_transactions_count,
@@ -2386,13 +2426,32 @@ def build_allocation_accounts_payload(use_cache=True):
             "allocation_as_of": (allocation_snapshots.get(account_id) or {}).get("date"),
         })
 
-    for row in load_manual_asset_rows():
+    manual_asset_rows = load_manual_asset_rows()
+    for row in manual_asset_rows:
         rows.append(row)
         for key in totals:
             totals[key] += row["categories"].get(key, 0.0)
 
     rows.sort(key=lambda r: (r["institution_name"], r["type"] or "", r["name"]))
-    payload = {"accounts": rows, "totals": totals, "categories": list(ASSET_BUCKETS)}
+    linked_assets = sum(
+        float(row.get("balance_current") or 0.0)
+        for row in account_rows
+        if row.get("type") != "credit"
+    )
+    liabilities = sum(
+        float(row.get("balance_current") or 0.0)
+        for row in account_rows
+        if row.get("type") == "credit"
+    )
+    manual_assets = sum(float(row.get("balance_current") or 0.0) for row in manual_asset_rows)
+    payload = {
+        "accounts": rows,
+        "totals": totals,
+        "categories": list(ASSET_BUCKETS),
+        "asset_total": linked_assets + manual_assets,
+        "liabilities": liabilities,
+        "net_worth": linked_assets + manual_assets - liabilities,
+    }
     ALLOCATION_CACHE["time"] = now
     ALLOCATION_CACHE["payload"] = payload
     ALLOCATION_CACHE["user_id"] = user_id
@@ -2649,6 +2708,14 @@ def get_allocation_history():
             group["Net Worth"] = (
                 group["Cash"] + group["Stock"] + group["Bond"] + group["Real Estate"] - group["liabilities"]
             )
+
+        today = datetime.now().date().isoformat()
+        current = by_date.setdefault(today, {"date": today})
+        for key in ASSET_BUCKETS:
+            current[key] = float((allocation_payload.get("totals") or {}).get(key) or 0.0)
+        current["liabilities"] = float(allocation_payload.get("liabilities") or 0.0)
+        current["Net Worth"] = float(allocation_payload.get("net_worth") or 0.0)
+        current["source"] = "current"
 
         series = [by_date[date] for date in sorted(by_date.keys())]
         return jsonify({"history": series, "categories": ["Net Worth", *ASSET_BUCKETS]})

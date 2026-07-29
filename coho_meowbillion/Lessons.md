@@ -87,3 +87,11 @@
 - Fix: Build each Plaid history date from every account's latest known balance as of that date.
 - Prevention: Daily portfolio history must use as-of account values because institution syncs can succeed independently.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md, knowledge.md
+
+## 2026-07-28 - Hidden balance-sync warning and duplicate current totals
+
+- Issue: A retryable Robinhood balance failure was invisible, while the Overview headline and latest chart point were calculated through separate paths.
+- Cause: Balance warnings existed only in the immediate sync response, and the browser recomputed headline liabilities separately from the history endpoint.
+- Fix: Persist balance status/error per Item and expose one backend current-net-worth summary to both surfaces.
+- Prevention: Operational warnings must survive the request that created them, and the same displayed financial metric must have one canonical producer.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md, knowledge.md

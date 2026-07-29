@@ -283,6 +283,12 @@ def init_db():
             cursor.execute("ALTER TABLE plaid_tokens ADD COLUMN holdings_sync_status TEXT DEFAULT 'no_holdings'")
         if 'holdings_last_synced' not in columns:
             cursor.execute("ALTER TABLE plaid_tokens ADD COLUMN holdings_last_synced TEXT")
+        if 'balance_sync_status' not in columns:
+            cursor.execute("ALTER TABLE plaid_tokens ADD COLUMN balance_sync_status TEXT DEFAULT 'never_synced'")
+        if 'balance_last_synced' not in columns:
+            cursor.execute("ALTER TABLE plaid_tokens ADD COLUMN balance_last_synced TEXT")
+        if 'balance_error_message' not in columns:
+            cursor.execute("ALTER TABLE plaid_tokens ADD COLUMN balance_error_message TEXT")
         # Create accounts table
         conn.execute('''
         CREATE TABLE IF NOT EXISTS accounts (

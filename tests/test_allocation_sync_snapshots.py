@@ -160,6 +160,9 @@ class AllocationSyncSnapshotTests(unittest.TestCase):
 
         self.assertAlmostEqual(latest["Net Worth"], 310)
 
+        current = self.client.get("/api/allocation_accounts").get_json()
+        self.assertAlmostEqual(history[-1]["Net Worth"], current["net_worth"])
+
     def test_failed_holdings_refresh_keeps_last_successful_snapshot(self):
         with database.get_db() as conn:
             conn.execute(

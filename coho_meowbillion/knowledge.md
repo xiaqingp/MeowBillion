@@ -97,3 +97,11 @@
 - Scope: Overview Net Worth Trend and Allocation Trend.
 - Source: M4/T9 implementation and allocation history regression test.
 - Usage: Treat per-institution daily sync as partial input; never interpret missing same-day account rows as a zero balance.
+
+## 2026-07-28 - Balance warning and current Net Worth ownership
+
+- Fact: Balance sync failures are stored separately from authentication status and clear on the next successful balance request.
+- Fact: `GET /api/allocation_accounts` is the canonical source for current assets, liabilities, and Net Worth.
+- Scope: Plaid connection health and Overview current/latest values.
+- Source: M4/T10 implementation and regression tests.
+- Usage: Retry `balance_sync_status=failed` with Sync now; reserve Repair for login or consent errors.

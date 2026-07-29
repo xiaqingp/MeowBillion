@@ -54,6 +54,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Users can sign in, sign up, and maintain isolated user-scoped data.
 - Each user can store and manage Plaid credentials in-app.
 - Users can link, repair, reconnect, sync, and clean cached Plaid institutions.
+- Plaid connection cards persist per-institution balance failures, retain the last successful balance, and distinguish retryable sync warnings from authentication errors that require Repair.
 - Transactions can be filtered by search, date/month, account, amount, category, subcategory, status, and Trip/Property assignment, with a one-click reset to the default all-transactions view.
 - Transaction filter selections survive a browser refresh within the current tab and remain isolated by user.
 - Pending transactions are visible but not reviewable.
@@ -73,6 +74,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Overview shows net worth trend, allocation trend, portfolio allocation, and account allocation.
 - Plaid sync stores account allocation snapshots; Overview reads those snapshots locally and does not call Plaid while loading.
 - Net Worth Trend uses each account's latest known balance as of each plotted date so a partial institution sync cannot create a false portfolio drop.
+- The Overview headline and the latest Net Worth Trend point use the same backend current-net-worth summary.
 - Net Worth Trend hover stays compact with date and Net Worth only; clicking/tapping a point opens its top three positive and negative account-level contributors plus any unattributed residual.
 
 ### UX Requirements

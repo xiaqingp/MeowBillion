@@ -576,13 +576,7 @@ async function renderDashboard(accounts) {
     if (cashBalEl) {
         try {
             const allocationPayload = await fetchAllocationAccountsCached();
-            const totals = allocationPayload?.totals || {};
-            const assetTotal = ["Cash", "Stock", "Bond", "Real Estate"]
-                .reduce((sum, key) => sum + Number(totals[key] || 0), 0);
-            const liabilities = accounts
-                .filter(acc => acc.type === "credit" && !acc.is_virtual)
-                .reduce((sum, acc) => sum + Number(acc.balance_current || 0), 0);
-            cashBalEl.textContent = formatCurrency(assetTotal - liabilities);
+            cashBalEl.textContent = formatCurrency(Number(allocationPayload?.net_worth || 0));
         } catch (err) {
             console.warn("Unable to load net worth total:", err);
             const assetAccounts = accounts.filter(a => !a.is_virtual && (a.type === "depository" || a.type === "investment"));
@@ -676,6 +670,10 @@ function plaidWarningMessage(connInfo) {
     }
     if (connInfo?.status === "error_login" || raw.includes("ITEM_LOGIN_REQUIRED")) {
         return "Plaid says this bank login needs to be refreshed before sync can continue.";
+    }
+    if (connInfo?.balance_sync_status === "failed") {
+        const detail = String(connInfo?.balance_error_message || "").trim();
+        return `Balance sync failed. The last successful balance is still being used. Try Sync now.${detail ? ` ${detail}` : ""}`;
     }
     const match = raw.match(/"error_message"\s*:\s*"([^"]+)"/);
     if (match?.[1]) return match[1];
@@ -848,6 +846,7 @@ function getConnectionUiState(connInfo, accList = [], isDisconnected = false) {
     const holdingsNeedsRepair = hasInvestments && ["auth_required", "consent_required", "error_consent", "error_login", "failed"].includes(holdingsStatus);
     const holdingsPending = hasInvestments && ["pending", "syncing"].includes(holdingsStatus);
     const holdingsLimited = hasInvestments && ["no_holdings", "product_not_supported", "not_supported"].includes(holdingsStatus);
+    const balanceFailed = connInfo?.balance_sync_status === "failed";
 
     if (status === "disconnected") {
         return {
@@ -866,6 +865,16 @@ function getConnectionUiState(connInfo, accList = [], isDisconnected = false) {
             message: "This connection needs repair before it can fully sync.",
             primaryAction: "repair",
             primaryLabel: "Repair connection",
+            moreItems: ["view_error_details", "disconnect", "replace_connection"]
+        };
+    }
+    if (balanceFailed) {
+        return {
+            state: "sync_warning",
+            label: "Balance stale",
+            message: "The latest balance request failed. The last successful balance is still shown.",
+            primaryAction: "sync",
+            primaryLabel: "Sync now",
             moreItems: ["view_error_details", "disconnect", "replace_connection"]
         };
     }
@@ -915,6 +924,9 @@ function connectionTooltip(uiState, connInfo, accList, itemId, isDisconnected) {
     if (connInfo?.error_code) lines.push(`Plaid error code: ${connInfo.error_code}`);
     if (connInfo?.error_message) lines.push(`Plaid error message: ${String(connInfo.error_message).slice(0, 260)}`);
     if (connInfo?.holdings_sync_status) lines.push(`Holdings status: ${connInfo.holdings_sync_status}`);
+    if (connInfo?.balance_sync_status) lines.push(`Balance status: ${connInfo.balance_sync_status}`);
+    if (connInfo?.balance_last_synced) lines.push(`Balance last synced: ${connInfo.balance_last_synced}`);
+    if (connInfo?.balance_error_message) lines.push(`Balance error: ${connInfo.balance_error_message}`);
     if (connInfo?.last_sync_attempt_at) lines.push(`Last sync attempt: ${connInfo.last_sync_attempt_at}`);
     if (connInfo?.last_success_at) lines.push(`Last successful sync: ${connInfo.last_success_at}`);
     if (isDisconnected) {
@@ -940,12 +952,19 @@ function showConnectionDetails(kind, itemId) {
         `Investment account count: ${investmentCount}`
     ];
     if (connInfo.holdings_sync_status) lines.push(`Holdings status: ${connInfo.holdings_sync_status}`);
+    if (connInfo.balance_sync_status) lines.push(`Balance status: ${connInfo.balance_sync_status}`);
+    if (connInfo.balance_last_synced) lines.push(`Balance last synced: ${connInfo.balance_last_synced}`);
+    if (connInfo.balance_error_message) lines.push(`Balance error: ${connInfo.balance_error_message}`);
     if (connInfo.last_sync_attempt_at) lines.push(`Last sync attempt: ${connInfo.last_sync_attempt_at}`);
     if (connInfo.last_success_at) lines.push(`Last successful sync: ${connInfo.last_success_at}`);
     if (connInfo.last_cursor_available != null) lines.push(`Last cursor available: ${connInfo.last_cursor_available ? "yes" : "no"}`);
     if (connInfo.error_code) lines.push(`Plaid error code: ${connInfo.error_code}`);
     if (connInfo.error_message) lines.push(`Plaid error message: ${connInfo.error_message}`);
-    if (kind === "error") lines.push("Suggested action: Repair connection");
+    if (kind === "error") {
+        lines.push(connInfo.balance_sync_status === "failed" && uiState.primaryAction === "sync"
+            ? "Suggested action: Sync now"
+            : "Suggested action: Repair connection");
+    }
     if (kind === "cache") {
         if (connInfo.cached_transactions_count != null) lines.push(`Cached transactions: ${connInfo.cached_transactions_count}`);
         if (connInfo.cached_reviewed_transactions_count != null) lines.push(`Reviewed transactions: ${connInfo.cached_reviewed_transactions_count}`);
@@ -1050,7 +1069,7 @@ function renderPlaidConnections(accounts, connections = []) {
         const uiState = getConnectionUiState(connInfo, accList, isDisconnected);
         window.__connectionDetails[itemId] = { uiState, connInfo, accList, bankName, isDisconnected };
         const badgeClass = uiState.state === "needs_repair" ? "is-danger"
-            : uiState.state === "syncing_or_pending" ? "is-pending"
+            : ["syncing_or_pending", "sync_warning"].includes(uiState.state) ? "is-pending"
             : uiState.state === "limited_support" || uiState.state === "disconnected" ? "is-muted"
             : "is-success";
         const statusBadgeHtml = `<span class="settings-status-badge ${badgeClass}">${escapeHtml(uiState.label)}</span>`;
