@@ -2,7 +2,7 @@
   "expo": {
     "name": "MeowBillion",
     "slug": "meowbillion-mobile",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/meowbillion-logo.png",
     "userInterfaceStyle": "light",
@@ -11,6 +11,7 @@
     },
     "android": {
       "package": "com.meowbillion.mobile",
+      "versionCode": 2,
       "usesCleartextTraffic": true,
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {

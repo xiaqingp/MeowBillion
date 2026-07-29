@@ -69,6 +69,7 @@
 | T9 | Preserve user-scoped Transaction filters across page refresh | Done | `tests/test_transaction_filter_persistence_ui.py`; JS syntax check | Passed 2026-07-13 |
 | T10 | Add monthly/yearly Income subcategory tables to Spending | Done | `tests/test_spending_income_subcategories.py`; full unittest suite | 66 tests passed 2026-07-13 |
 | T11 | Add Income subcategory drill-down and Transaction filter | Done | `tests/test_spending_income_drilldown.py`; full unittest suite | 68 tests passed 2026-07-13 |
+| T12 | Keep mobile transaction editor inside the viewport with large option sets | Done | Mobile modal-layout test; mobile tests; TypeScript check; release APK build | 32 tests, typecheck, and v1.0.2 release APK build passed; no emulator/device available for screenshot 2026-07-28 |
 
 #### Delivery Notes
 
@@ -184,3 +185,4 @@
 | 2026-07-28 | Fixed partial-sync Net Worth history | Carry forward each account's latest known balance so a missing institution on one sync day does not create a false drop in v0.1.31 | M4/T9 |
 | 2026-07-28 | Unified Net Worth and exposed balance warnings | Persist retryable per-Item failures and make headline/latest trend share one backend summary in v0.1.32 | M4/T10 |
 | 2026-07-28 | Hardened Overview consistency | Restarted the stale backend, prevented missing fields from rendering as zero, surfaced warning-only partial syncs, and labeled gross assets in v0.1.33 | M4/T11 |
+| 2026-07-28 | Fixed mobile transaction sheet overflow | Constrained editor/create ScrollViews and enabled internal scrolling for large Category/Trip lists in mobile v1.0.2 | M2/T12 |

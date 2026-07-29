@@ -340,7 +340,12 @@ function EditorModal({
     <Modal animationType="slide" onRequestClose={onClose} transparent visible>
       <View style={s.scrim}>
         <SafeAreaView edges={["top", "bottom"]} style={s.modalSafe}>
-          <ScrollView contentContainerStyle={s.modal}>
+          <ScrollView
+            contentContainerStyle={s.modalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+            style={s.modalScroll}
+          >
             <ModalHeader
               onClose={onClose}
               title={transaction.Merchant || "Transaction"}
@@ -601,7 +606,12 @@ function CreateModal({
     >
       <View style={s.scrim}>
         <SafeAreaView edges={["top", "bottom"]} style={s.modalSafe}>
-          <ScrollView contentContainerStyle={s.modal}>
+          <ScrollView
+            contentContainerStyle={s.modalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+            style={s.modalScroll}
+          >
             <ModalHeader onClose={onClose} title="Add transaction" />
             <DateField label="Date" onChange={setDate} value={date} />
             <Label text="Merchant" />
@@ -1291,11 +1301,13 @@ const s = StyleSheet.create({
   empty: { color: "#8992a4", padding: 30, textAlign: "center" },
   scrim: { backgroundColor: "rgba(20,25,35,.45)", flex: 1 },
   modalSafe: { flex: 1, justifyContent: "flex-end" },
-  modal: {
+  modalScroll: {
     backgroundColor: "#f7f8fb",
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
     maxHeight: "94%",
+  },
+  modalContent: {
     padding: 18,
     paddingBottom: 34,
   },

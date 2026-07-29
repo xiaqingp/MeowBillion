@@ -103,3 +103,11 @@
 - Fix: Restart the backend, derive the old allocation response shape when available, and show unavailable rather than zero for an invalid response.
 - Prevention: A static version check is insufficient after Python changes; verify a changed backend field through the running process.
 - Affected docs: TechDesign.md, Milestones.md, Lessons.md
+
+## 2026-07-28 - Mobile transaction sheet overflow
+
+- Issue: Transactions with many Category, Subcategory, and Trip options extended behind the mobile tab bar.
+- Cause: The height limit was applied to `ScrollView.contentContainerStyle`, which does not constrain the ScrollView viewport.
+- Fix: Put `maxHeight` and sheet framing on the ScrollView and keep padding on a separate content-container style.
+- Prevention: Bottom-sheet tests must assert that viewport constraints live on the scrollable component, not its content container.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md

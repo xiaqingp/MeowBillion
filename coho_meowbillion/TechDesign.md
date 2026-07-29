@@ -92,6 +92,7 @@ Core APIs:
 - `plaid_tokens.balance_sync_status`, `balance_last_synced`, and `balance_error_message` preserve retryable per-Item balance failures independently from authentication/consent status.
 - `GET /api/allocation_accounts` owns the canonical current `asset_total`, `liabilities`, and `net_worth`; the Overview headline and today's history point consume that same summary.
 - The headline can derive the legacy response shape during a rolling frontend/backend mismatch, but displays unavailable instead of a fabricated zero when neither canonical nor allocation totals are present.
+- Mobile transaction editor/create sheets constrain the `ScrollView` viewport to the safe-area height; content containers own padding only so large option sets remain internally scrollable.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:
