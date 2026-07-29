@@ -68,10 +68,19 @@ class PlaidBalanceWarningTests(unittest.TestCase):
 
     def test_balance_failure_ui_recommends_sync_instead_of_repair(self):
         app_js = (ROOT / "app.js").read_text(encoding="utf-8")
+        plaid_service_js = (ROOT / "modules" / "plaid-service.js").read_text(encoding="utf-8")
 
         self.assertIn('label: "Balance stale"', app_js)
         self.assertIn('primaryLabel: "Sync now"', app_js)
         self.assertIn('"Suggested action: Sync now"', app_js)
+        self.assertIn("warningCount", plaid_service_js)
+        self.assertIn("institution warning", plaid_service_js)
+
+    def test_dashboard_does_not_default_missing_net_worth_to_zero(self):
+        app_js = (ROOT / "app.js").read_text(encoding="utf-8")
+
+        self.assertNotIn("Number(allocationPayload?.net_worth || 0)", app_js)
+        self.assertIn('cashBalEl.textContent = "—"', app_js)
 
 
 if __name__ == "__main__":

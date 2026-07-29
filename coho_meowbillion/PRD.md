@@ -75,6 +75,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Plaid sync stores account allocation snapshots; Overview reads those snapshots locally and does not call Plaid while loading.
 - Net Worth Trend uses each account's latest known balance as of each plotted date so a partial institution sync cannot create a false portfolio drop.
 - The Overview headline and the latest Net Worth Trend point use the same backend current-net-worth summary.
+- Asset Allocation and Account Allocation explicitly present gross assets; Net Worth is gross assets minus liabilities.
 - Net Worth Trend hover stays compact with date and Net Worth only; clicking/tapping a point opens its top three positive and negative account-level contributors plus any unattributed residual.
 
 ### UX Requirements

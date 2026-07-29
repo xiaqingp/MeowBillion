@@ -128,6 +128,7 @@
 | T8 | Persist allocation during sync and make Overview allocation database-only | Done | Allocation snapshot tests; full unittest suite; real sync and cold endpoint timing | 82 tests passed; 9 Items synced without warnings; cold allocation reads 4.8 ms and 7.5 ms on 2026-07-16 |
 | T9 | Prevent partial daily syncs from understating Net Worth Trend | Done | Allocation history regression test; real-data latest-point reconciliation; full unittest suite | Latest API point reconciled to $6,538,962.92; 89 tests passed 2026-07-28 |
 | T10 | Persist balance-sync warnings and unify current Net Worth calculation | Done | Balance warning persistence/UI tests; headline/history consistency test; full unittest suite | 91 tests passed; real current/latest API values matched 2026-07-28 |
+| T11 | Harden Overview against mixed frontend/backend versions and clarify gross assets | Done | Missing-field fallback test; warning-summary test; JS syntax; full suite | 93 tests passed; runtime reconciliation repeated after restart 2026-07-28 |
 
 #### Delivery Notes
 
@@ -182,3 +183,4 @@
 | 2026-07-20 | Made tied merchant history deterministic | First-place ties now use the first stored reviewed combination instead of skipping prediction in v0.1.30 | M2/T4 |
 | 2026-07-28 | Fixed partial-sync Net Worth history | Carry forward each account's latest known balance so a missing institution on one sync day does not create a false drop in v0.1.31 | M4/T9 |
 | 2026-07-28 | Unified Net Worth and exposed balance warnings | Persist retryable per-Item failures and make headline/latest trend share one backend summary in v0.1.32 | M4/T10 |
+| 2026-07-28 | Hardened Overview consistency | Restarted the stale backend, prevented missing fields from rendering as zero, surfaced warning-only partial syncs, and labeled gross assets in v0.1.33 | M4/T11 |

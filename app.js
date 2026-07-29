@@ -576,12 +576,23 @@ async function renderDashboard(accounts) {
     if (cashBalEl) {
         try {
             const allocationPayload = await fetchAllocationAccountsCached();
-            cashBalEl.textContent = formatCurrency(Number(allocationPayload?.net_worth || 0));
+            let netWorth = Number(allocationPayload?.net_worth);
+            if (!Number.isFinite(netWorth)) {
+                const totals = allocationPayload?.totals || {};
+                const hasAllocationTotals = ["Cash", "Stock", "Bond", "Real Estate"]
+                    .some(key => Object.hasOwn(totals, key));
+                if (!hasAllocationTotals) throw new Error("Current Net Worth is unavailable");
+                const assetTotal = ["Cash", "Stock", "Bond", "Real Estate"]
+                    .reduce((sum, key) => sum + Number(totals[key] || 0), 0);
+                const liabilities = accounts
+                    .filter(acc => acc.type === "credit" && !acc.is_virtual)
+                    .reduce((sum, acc) => sum + Number(acc.balance_current || 0), 0);
+                netWorth = assetTotal - liabilities;
+            }
+            cashBalEl.textContent = formatCurrency(netWorth);
         } catch (err) {
             console.warn("Unable to load net worth total:", err);
-            const assetAccounts = accounts.filter(a => !a.is_virtual && (a.type === "depository" || a.type === "investment"));
-            const netBalance = assetAccounts.reduce((sum, a) => sum + (a.balance_current || 0), 0);
-            cashBalEl.textContent = formatCurrency(netBalance);
+            cashBalEl.textContent = "—";
         }
     }
 
@@ -2701,7 +2712,7 @@ export async function renderInstitutionAllocationDetails() {
                     <div class="allocation-primary">Account Allocation</div>
                     <div class="allocation-secondary">Grouped by bank. Manual percentages override automatic holdings; accounts without holdings default to Cash.</div>
                 </div>
-                <div class="allocation-total">$${formatCurrency(Object.values(totals).reduce((sum, val) => sum + (val || 0), 0))}</div>
+                <div class="allocation-total">Total assets · $${formatCurrency(Object.values(totals).reduce((sum, val) => sum + (val || 0), 0))}</div>
             </div>
             <div class="allocation-table-wrap">
                 <table class="allocation-table allocation-account-table">

@@ -11,6 +11,12 @@ class PlaidSyncSummaryTests(unittest.TestCase):
     def test_partial_success_when_some_items_fail(self):
         self.assertEqual(summarize_sync_results([{"item_id": "a"}], [{"item_id": "b"}]), "partial_success")
 
+    def test_partial_success_when_item_has_warning(self):
+        self.assertEqual(
+            summarize_sync_results([{"item_id": "a", "warnings": [{"scope": "balance"}]}], []),
+            "partial_success",
+        )
+
     def test_failed_when_all_items_fail(self):
         self.assertEqual(summarize_sync_results([], [{"item_id": "b"}]), "failed")
 

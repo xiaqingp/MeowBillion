@@ -83,7 +83,9 @@ export async function syncPlaidTransactions() {
             const { loadData } = await import('../app.js');
             await loadData({ refreshOverview: true });
         } else if (res.status === "partial_success") {
-            alert(`Sync partially completed. Imported ${res.new_transactions_count || 0} new transactions. ${(res.failed_items || []).length} institution needs attention.`);
+            const warningCount = (res.succeeded_items || []).filter(item => (item.warnings || []).length).length;
+            const attentionCount = (res.failed_items || []).length + warningCount;
+            alert(`Sync partially completed. Imported ${res.new_transactions_count || 0} new transactions. ${attentionCount} institution warning${attentionCount === 1 ? "" : "s"} need attention.`);
             const { loadData } = await import('../app.js');
             await loadData({ refreshOverview: true });
         } else if (res.status === "failed") {

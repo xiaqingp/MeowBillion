@@ -91,6 +91,7 @@ Core APIs:
 - `GET /api/allocation_accounts` and `GET /api/allocation_history`: database-only Overview reads backed by sync-time account allocation snapshots; historical totals carry each account's latest known balance forward across partial sync dates.
 - `plaid_tokens.balance_sync_status`, `balance_last_synced`, and `balance_error_message` preserve retryable per-Item balance failures independently from authentication/consent status.
 - `GET /api/allocation_accounts` owns the canonical current `asset_total`, `liabilities`, and `net_worth`; the Overview headline and today's history point consume that same summary.
+- The headline can derive the legacy response shape during a rolling frontend/backend mismatch, but displays unavailable instead of a fabricated zero when neither canonical nor allocation totals are present.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:

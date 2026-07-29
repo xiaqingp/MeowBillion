@@ -699,6 +699,8 @@ def summarize_sync_results(succeeded_items, failed_items):
         return "partial_success"
     if failed_items and not succeeded_items:
         return "failed"
+    if any(item.get("warnings") for item in succeeded_items):
+        return "partial_success"
     return "success"
 
 

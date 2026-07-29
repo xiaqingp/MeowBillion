@@ -95,3 +95,11 @@
 - Fix: Persist balance status/error per Item and expose one backend current-net-worth summary to both surfaces.
 - Prevention: Operational warnings must survive the request that created them, and the same displayed financial metric must have one canonical producer.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md, knowledge.md
+
+## 2026-07-28 - Mixed frontend/backend version rendered zero
+
+- Issue: Net Worth rendered as zero immediately after the canonical summary change.
+- Cause: Static files updated without restarting the long-running Python process, so the new frontend received an old API response without `net_worth`.
+- Fix: Restart the backend, derive the old allocation response shape when available, and show unavailable rather than zero for an invalid response.
+- Prevention: A static version check is insufficient after Python changes; verify a changed backend field through the running process.
+- Affected docs: TechDesign.md, Milestones.md, Lessons.md
