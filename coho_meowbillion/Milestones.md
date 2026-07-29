@@ -4,7 +4,7 @@
 
 - Project: MeowBillion
 - Approval: Approved current baseline and forward milestone structure
-- Last updated: 2026-07-20
+- Last updated: 2026-07-28
 - Approved scope: Maintain current local-first app, fix bugs, improve UX, preserve tests, push every code change.
 
 ## Milestone Summary
@@ -126,6 +126,7 @@
 | T6 | Add on-demand Net Worth driver tooltip with Top 3 Up/Down account contributions | Done | Backend contribution/reconciliation tests; frontend tooltip contract test; JS syntax; full suite; real-data endpoint smoke check | 78 tests passed 2026-07-14; latest real snapshot reconciled at 100%; browser automation unavailable for final visual pass |
 | T7 | Apply balanced Tiffany colors and on-demand Net Worth drivers to mobile Overview | Done | Mobile unit tests; TypeScript check; Expo Android export | 31 tests passed 2026-07-14; TypeScript and Android export passed |
 | T8 | Persist allocation during sync and make Overview allocation database-only | Done | Allocation snapshot tests; full unittest suite; real sync and cold endpoint timing | 82 tests passed; 9 Items synced without warnings; cold allocation reads 4.8 ms and 7.5 ms on 2026-07-16 |
+| T9 | Prevent partial daily syncs from understating Net Worth Trend | Done | Allocation history regression test; real-data latest-point reconciliation; full unittest suite | Latest API point reconciled to $6,538,962.92; 89 tests passed 2026-07-28 |
 
 #### Delivery Notes
 
@@ -178,3 +179,4 @@
 | 2026-07-16 | Moved holdings allocation work into sync | Persisted daily account allocation snapshots, retained last successful holdings on failure, and made Overview allocation DB-only in v0.1.28 | M4/T8 |
 | 2026-07-20 | Corrected merchant-history prediction | Unique most-frequent reviewed classification now wins; all prediction/backfill paths enforce the owning user's configuration in v0.1.29 | M2/T4 |
 | 2026-07-20 | Made tied merchant history deterministic | First-place ties now use the first stored reviewed combination instead of skipping prediction in v0.1.30 | M2/T4 |
+| 2026-07-28 | Fixed partial-sync Net Worth history | Carry forward each account's latest known balance so a missing institution on one sync day does not create a false drop in v0.1.31 | M4/T9 |

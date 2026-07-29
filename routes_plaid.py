@@ -2559,11 +2559,16 @@ def get_allocation_history():
             if group.get("source") in ("imported", "snapshot"):
                 group["Real Estate"] = 0.0
         actual_account_dates = set()
+        history_rows_by_date = {}
         for row in history_rows:
             date = row["date"]
             if not date:
                 continue
             actual_account_dates.add((row["account_id"], date))
+            history_rows_by_date.setdefault(date, []).append(row)
+
+        latest_balance_by_account = {}
+        for date, dated_rows in history_rows_by_date.items():
             if date in by_date and by_date[date].get("source") in ("imported", "snapshot"):
                 by_date[date] = {
                     "date": date,
@@ -2575,6 +2580,8 @@ def get_allocation_history():
                     "liabilities": 0.0,
                     "source": "plaid"
                 }
+            for row in dated_rows:
+                latest_balance_by_account[row["account_id"]] = row
             group = by_date.setdefault(date, {
                 "date": date,
                 "Net Worth": 0.0,
@@ -2585,13 +2592,14 @@ def get_allocation_history():
                 "liabilities": 0.0,
                 "source": "plaid"
             })
-            balance = float(row["balance_current"] or 0.0)
-            if row["type"] == "credit":
-                group["liabilities"] += balance
-                continue
-            pct = allocation_percentages_for_date(row["account_id"], date)
-            for key in ASSET_BUCKETS:
-                group[key] += balance * pct.get(key, 0.0) / 100.0
+            for row in latest_balance_by_account.values():
+                balance = float(row["balance_current"] or 0.0)
+                if row["type"] == "credit":
+                    group["liabilities"] += balance
+                    continue
+                pct = allocation_percentages_for_date(row["account_id"], date)
+                for key in ASSET_BUCKETS:
+                    group[key] += balance * pct.get(key, 0.0) / 100.0
 
         for estimate in load_account_value_estimates():
             date = estimate.get("date")

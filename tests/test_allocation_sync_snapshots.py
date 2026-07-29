@@ -139,6 +139,27 @@ class AllocationSyncSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(investment["categories"]["Cash"], 50)
         self.assertAlmostEqual(investment["categories"]["Stock"], 150)
 
+    def test_allocation_history_carries_forward_accounts_missing_from_partial_sync_day(self):
+        with database.get_db() as conn:
+            conn.executemany(
+                """
+                INSERT INTO account_balances_history
+                    (account_id, date, balance_current, balance_available, user_id)
+                VALUES (?, ?, ?, ?, 'u1')
+                """,
+                [
+                    ("checking", "2026-07-15", 100, 100),
+                    ("investment", "2026-07-15", 200, 200),
+                    ("checking", "2026-07-16", 110, 110),
+                ],
+            )
+            conn.commit()
+
+        history = self.client.get("/api/allocation_history").get_json()["history"]
+        latest = next(row for row in history if row["date"] == "2026-07-16")
+
+        self.assertAlmostEqual(latest["Net Worth"], 310)
+
     def test_failed_holdings_refresh_keeps_last_successful_snapshot(self):
         with database.get_db() as conn:
             conn.execute(

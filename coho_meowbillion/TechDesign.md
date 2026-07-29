@@ -4,7 +4,7 @@
 
 - Project: MeowBillion
 - Approval: Approved as current baseline
-- Last updated: 2026-07-20
+- Last updated: 2026-07-28
 - Based on PRD version/date: PRD.md 2026-07-20
 
 ## Overview
@@ -88,7 +88,7 @@ Core APIs:
 - Spending report cells drill into the existing Transaction view by setting date/category/subcategory filters client-side; blank subcategories use the internal `__uncategorized__` filter value, and no duplicate reporting API is used.
 - `GET /api/account_balance_history`: user-scoped single-account balance history for expanded Account Allocation rows.
 - `GET /api/net_worth_drivers?date=YYYY-MM-DD`: on-demand, user-scoped account/manual-asset contributions between a selected Net Worth snapshot and its actual preceding snapshot.
-- `GET /api/allocation_accounts` and `GET /api/allocation_history`: database-only Overview reads backed by sync-time account allocation snapshots.
+- `GET /api/allocation_accounts` and `GET /api/allocation_history`: database-only Overview reads backed by sync-time account allocation snapshots; historical totals carry each account's latest known balance forward across partial sync dates.
 - `GET/POST /api/sync_schedule`: global daily sync time. All users may read it; only an active admin may update it.
 
 Operational commands:

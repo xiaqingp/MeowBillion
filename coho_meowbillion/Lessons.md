@@ -79,3 +79,11 @@
 - Fix: Select the most-frequent pair with at least three winning examples, use the first stored pair on a tie, and enforce the owning user's Category/Subcategory config in every prediction path.
 - Prevention: Every classifier entry point must receive explicit user-scoped configuration, and startup migrations must carry `user_id` through reads and writes.
 - Affected docs: PRD.md, TechDesign.md, Milestones.md, knowledge.md
+
+## 2026-07-28 - Partial-sync Net Worth drop
+
+- Issue: The Overview headline showed about $6.54M while the latest Net Worth Trend point showed about $4.85M.
+- Cause: The history endpoint summed only accounts with a balance row on that exact date; Robinhood had not written July 28 rows, so its July 27 balance was omitted.
+- Fix: Build each Plaid history date from every account's latest known balance as of that date.
+- Prevention: Daily portfolio history must use as-of account values because institution syncs can succeed independently.
+- Affected docs: PRD.md, TechDesign.md, Milestones.md, Lessons.md, knowledge.md

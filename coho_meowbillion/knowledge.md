@@ -90,3 +90,10 @@
 - Scope: Plaid sync prediction, review-time propagation, and startup backfill.
 - Source: M2/T4 implementation and regression tests.
 - Usage: Always scope history and Category/Subcategory config by `user_id`; preserve deterministic stored order when resolving a first-place tie.
+
+## 2026-07-28 - Net Worth history as-of balances
+
+- Fact: `GET /api/allocation_history` carries each account's latest known balance forward to later Plaid history dates until a newer balance is stored.
+- Scope: Overview Net Worth Trend and Allocation Trend.
+- Source: M4/T9 implementation and allocation history regression test.
+- Usage: Treat per-institution daily sync as partial input; never interpret missing same-day account rows as a zero balance.

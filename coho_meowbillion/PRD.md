@@ -5,7 +5,7 @@
 - Project: MeowBillion
 - Owner: surreal
 - Approval: Approved as current baseline
-- Last updated: 2026-07-20
+- Last updated: 2026-07-28
 
 ## Summary
 
@@ -72,6 +72,7 @@ Personal finance data is fragmented across banks, brokerages, spreadsheets, and 
 - Rental reports group by Rental Property ID and show property-level transactions, income, expense, monthly, and yearly summaries.
 - Overview shows net worth trend, allocation trend, portfolio allocation, and account allocation.
 - Plaid sync stores account allocation snapshots; Overview reads those snapshots locally and does not call Plaid while loading.
+- Net Worth Trend uses each account's latest known balance as of each plotted date so a partial institution sync cannot create a false portfolio drop.
 - Net Worth Trend hover stays compact with date and Net Worth only; clicking/tapping a point opens its top three positive and negative account-level contributors plus any unattributed residual.
 
 ### UX Requirements
