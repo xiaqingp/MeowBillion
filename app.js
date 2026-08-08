@@ -17,6 +17,7 @@ import {
     saveAllocationOverrideApi,
     fetchTransactionFilterOptionsApi,
     fetchMonthlyAnalysisApi,
+    fetchReimbursementSummaryApi,
     fetchTravelAnalysisApi,
     fetchRentalAnalysisApi,
     fetchAuthStatusApi,
@@ -185,7 +186,7 @@ async function initApp() {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                <td colspan="10" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
                     <div>Loading transactions...</div>
                 </td>
@@ -349,7 +350,7 @@ export async function loadData(options = {}) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" style="text-align:center; padding: 48px; color: var(--text-muted);">
+                <td colspan="10" style="text-align:center; padding: 48px; color: var(--text-muted);">
                     <i data-lucide="loader-2" class="spin" style="width:24px; height:24px; margin-bottom:8px; display:inline-block;"></i>
                     <div>Loading transactions...</div>
                 </td>
@@ -603,6 +604,7 @@ async function renderDashboard(accounts) {
 
     const monthIncEl = document.getElementById("dash-month-income");
     const monthExpEl = document.getElementById("dash-month-expense");
+    const reimbursementEl = document.getElementById("dash-reimbursement");
     try {
         const data = await fetchMonthlyAnalysisApi();
         const currentMonthRow = (data.months || []).find(row => row.month === monthPrefix);
@@ -612,6 +614,13 @@ async function renderDashboard(accounts) {
         console.warn("Unable to load dashboard monthly totals:", err);
         if (monthIncEl) monthIncEl.textContent = formatCurrency(0);
         if (monthExpEl) monthExpEl.textContent = formatCurrency(0);
+    }
+    try {
+        const data = await fetchReimbursementSummaryApi();
+        if (reimbursementEl) reimbursementEl.textContent = formatCurrency(data.to_be_reimbursed || 0);
+    } catch (err) {
+        console.warn("Unable to load reimbursement total:", err);
+        if (reimbursementEl) reimbursementEl.textContent = "—";
     }
 }
 

@@ -84,6 +84,7 @@ export function toggleCreatePanel(open, event) {
         document.getElementById("create-tx-ratio").value = "1.0";
         document.getElementById("create-tx-ratio").disabled = true;
         document.getElementById("create-tx-mown").value = "0.0";
+        document.getElementById("create-tx-reimbursement").checked = false;
         
         updateCreateSplitPreview();
         lucide.createIcons();
@@ -159,6 +160,7 @@ export async function submitCreateManual(event) {
     const isB = document.getElementById("create-tx-isb").value;
     const ratio = parseFloat(document.getElementById("create-tx-ratio").value) || 1.0;
     const mown = parseFloat(document.getElementById("create-tx-mown").value) || 0.0;
+    const isReimbursement = document.getElementById("create-tx-reimbursement").checked;
     
     if (!merchant || isNaN(amountVal) || amountVal <= 0) {
         alert("Enter a valid merchant and amount.");
@@ -189,6 +191,7 @@ export async function submitCreateManual(event) {
             is_b: isB,
             ratio,
             mown,
+            is_reimbursement: isReimbursement,
             reviewed: 1
         });
         

@@ -105,6 +105,26 @@ def parse_amount_filter(raw):
     except Exception:
         return None
 
+def reimbursement_summary(conn, user_id):
+    row = conn.execute(
+        """
+        SELECT COALESCE(SUM(
+            CASE lower(COALESCE(direction, ''))
+                WHEN 'outflow' THEN ABS(COALESCE(amount, 0))
+                WHEN 'inflow' THEN -ABS(COALESCE(amount, 0))
+                ELSE 0
+            END
+        ), 0) AS outstanding
+        FROM transactions
+        WHERE user_id = ?
+          AND COALESCE(pending, 0) = 0
+          AND COALESCE(is_reimbursement, 0) = 1
+        """,
+        (user_id,),
+    ).fetchone()
+    return round(float(row["outstanding"] or 0), 2)
+
+
 def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', subtype='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all'):
     user_id = current_user_id()
     params = [user_id]
@@ -245,6 +265,7 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             t.prediction_confidence,
             t.prediction_reason,
             t.trip_id,
+            t.is_reimbursement,
             tr.name AS trip_name,
             tr.year AS trip_year,
             t.rental_property_id,
@@ -322,6 +343,7 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
             "PredictionSource": r['prediction_source'] or '',
             "PredictionConfidence": r['prediction_confidence'] or 0,
             "PredictionReason": r['prediction_reason'] or '',
+            "IsReimbursement": int(r['is_reimbursement'] or 0),
             "TripID": r['trip_id'] or '',
             "TripName": r['trip_name'] or '',
             "TripYear": r['trip_year'],
@@ -368,6 +390,18 @@ def get_transactions():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@transactions_bp.route('/api/reimbursement_summary', methods=['GET'])
+def get_reimbursement_summary():
+    try:
+        user_id = current_user_id()
+        with get_db() as conn:
+            outstanding = reimbursement_summary(conn, user_id)
+        return jsonify({"to_be_reimbursed": outstanding})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @transactions_bp.route('/api/transaction_filter_options', methods=['GET'])
 def transaction_filter_options():
@@ -432,10 +466,12 @@ def transaction_filter_options():
                 """
                 SELECT tr.id,
                        TRIM(COALESCE(tr.year || ' ', '') || tr.name) AS label,
-                       COUNT(*) AS tx_count
-                FROM transactions t
-                JOIN trips tr ON t.trip_id = tr.id AND tr.user_id = t.user_id
-                WHERE t.user_id = ?
+                       COUNT(t.transaction_id) AS tx_count
+                FROM trips tr
+                LEFT JOIN transactions t
+                  ON t.trip_id = tr.id
+                 AND t.user_id = tr.user_id
+                WHERE tr.user_id = ?
                 GROUP BY tr.id, label
                 ORDER BY COALESCE(tr.year, 0) DESC, lower(tr.name)
                 """,
@@ -524,6 +560,7 @@ def monthly_analysis():
                 WHERE user_id = ?
                   AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
+                  AND COALESCE(is_reimbursement, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 7)
                 ORDER BY month ASC
@@ -539,6 +576,7 @@ def monthly_analysis():
                 WHERE user_id = ?
                   AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
+                  AND COALESCE(is_reimbursement, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('income', 'internal transfer', ?)
                 GROUP BY substr(date, 1, 7), COALESCE(type, 'Other')
                 HAVING ABS(amount) > 0.005
@@ -559,6 +597,7 @@ def monthly_analysis():
                 WHERE user_id = ?
                   AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
+                  AND COALESCE(is_reimbursement, 0) = 0
                   AND lower(COALESCE(type, '')) NOT IN ('internal transfer', ?)
                 GROUP BY substr(date, 1, 4)
                 ORDER BY year ASC
@@ -574,6 +613,7 @@ def monthly_analysis():
                 WHERE user_id = ?
                   AND date IS NOT NULL AND date != ''
                   AND COALESCE(pending, 0) = 0
+                  AND COALESCE(is_reimbursement, 0) = 0
                   AND lower(COALESCE(type, '')) = 'income'
                 GROUP BY substr(date, 1, 7), COALESCE(NULLIF(TRIM(subtype), ''), 'Uncategorized')
                 HAVING ABS(SUM(COALESCE(ipay, 0))) > 0.005
@@ -773,6 +813,7 @@ def travel_analysis():
                 WHERE t.user_id = ?
                   AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
+                  AND COALESCE(t.is_reimbursement, 0) = 0
                 ORDER BY t.date DESC
                 """,
                 (user_id, travel_category)
@@ -914,6 +955,7 @@ def rental_analysis():
                 WHERE t.user_id = ?
                   AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
+                  AND COALESCE(t.is_reimbursement, 0) = 0
                 ORDER BY t.date DESC
                 """,
                 (user_id, rental_category)
@@ -1032,6 +1074,7 @@ def update_transaction():
         mown = float(data.get('mown', 0.0))
         note = data.get('note', '')
         subtype = data.get('subtype', '')
+        requested_reimbursement = data.get('is_reimbursement')
         trip_id = (data.get('trip_id') or '').strip() or None
         rental_property_id = (data.get('rental_property_id') or '').strip() or None
         
@@ -1043,7 +1086,7 @@ def update_transaction():
         cursor = conn.cursor()
         
         # Fetch existing transaction to get direction, amount, merchant, and settlement state.
-        cursor.execute("SELECT amount, direction, merchant, pending FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
+        cursor.execute("SELECT amount, direction, merchant, pending, reviewed, is_reimbursement FROM transactions WHERE transaction_id = ? AND user_id = ?", (tx_id, user_id))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -1051,6 +1094,17 @@ def update_transaction():
         if int(row['pending'] or 0) == 1:
             conn.close()
             return jsonify({"error": "Pending transactions cannot be reviewed until they are posted."}), 409
+        if int(row['reviewed'] or 0) == 1:
+            conn.close()
+            return jsonify({"error": "Reviewed transactions must be de-reviewed before they can be changed."}), 409
+
+        if requested_reimbursement is None:
+            is_reimbursement = int(row['is_reimbursement'] or 0)
+        elif isinstance(requested_reimbursement, bool):
+            is_reimbursement = int(requested_reimbursement)
+        else:
+            conn.close()
+            return jsonify({"error": "is_reimbursement must be a boolean"}), 400
             
         amount = abs(float(row['amount']))
         direction = row['direction']
@@ -1098,10 +1152,10 @@ def update_transaction():
         cursor.execute(
             """
             UPDATE transactions 
-            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, trip_id = ?, rental_property_id = ?, reviewed = 1 
+            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, trip_id = ?, rental_property_id = ?, is_reimbursement = ?, reviewed = 1
             WHERE transaction_id = ? AND user_id = ?
             """,
-            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, tx_id, user_id)
+            (custom_type, is_b, ratio, ipay, bpay, mown, note, subtype, trip_id, rental_property_id, is_reimbursement, tx_id, user_id)
         )
         auto_applied_count = apply_stable_history_to_unreviewed(
             cursor,
@@ -1382,23 +1436,23 @@ def merge_transactions():
         cursor = conn.cursor()
         
         # 1. Fetch manual classifications from legacy
-        cursor.execute("SELECT type, is_b, ratio, ipay, bpay, mown, note, subtype FROM transactions WHERE transaction_id = ? AND user_id = ?", (legacy_id, user_id))
+        cursor.execute("SELECT type, is_b, ratio, ipay, bpay, mown, note, subtype, is_reimbursement FROM transactions WHERE transaction_id = ? AND user_id = ?", (legacy_id, user_id))
         l_row = cursor.fetchone()
         if not l_row:
             conn.close()
             return jsonify({"error": "Legacy transaction not found"}), 404
             
-        l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype = l_row
+        l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype, l_is_reimbursement = l_row
         
         # 2. Update Plaid transaction
         conn.execute(
             """
             UPDATE transactions 
-            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, 
+            SET type = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, subtype = ?, is_reimbursement = ?,
                 reviewed = 1, imported_from_legacy = 1, legacy_matched = 1
             WHERE transaction_id = ? AND user_id = ?
             """,
-            (l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype, plaid_id, user_id)
+            (l_type, l_is_b, l_ratio, l_ipay, l_bpay, l_mown, l_note, l_subtype, l_is_reimbursement, plaid_id, user_id)
         )
         
         # 3. Delete legacy duplicate
@@ -1427,6 +1481,7 @@ def create_manual_transaction():
         note = data.get('note', '')
         subtype = data.get('subtype', '')
         reviewed = int(data.get('reviewed', 1))
+        is_reimbursement = int(bool(data.get('is_reimbursement', False)))
         
         ipay = 0.0
         bpay = 0.0
@@ -1453,9 +1508,9 @@ def create_manual_transaction():
             INSERT INTO transactions (
                 transaction_id, date, type, merchant, amount, direction, account_name,
                 authorized_date, pending, categories, location, payment_channel,
-                is_b, ratio, ipay, bpay, mown, note, subtype, reviewed,
+                is_b, ratio, ipay, bpay, mown, note, subtype, reviewed, is_reimbursement,
                 imported_from_legacy, legacy_matched, user_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '{}', 'other', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '{}', 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
             """,
             (
                 tx_id,
@@ -1474,6 +1529,7 @@ def create_manual_transaction():
                 note,
                 subtype,
                 reviewed,
+                is_reimbursement,
                 user_id
             )
         )

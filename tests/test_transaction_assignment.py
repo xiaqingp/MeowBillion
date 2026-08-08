@@ -22,6 +22,7 @@ class TransactionAssignmentTests(unittest.TestCase):
                 """
             )
             conn.execute("INSERT INTO trips (id, user_id, name, year) VALUES ('trip_1', 'u1', 'Japan', 2026)")
+            conn.execute("INSERT INTO trips (id, user_id, name, year) VALUES ('trip_2', 'u1', 'Sweden', 2026)")
             conn.execute("INSERT INTO rental_properties (id, user_id, name) VALUES ('rprop_1', 'u1', 'Fremont Condo')")
             conn.execute(
                 """
@@ -97,6 +98,12 @@ class TransactionAssignmentTests(unittest.TestCase):
         options = self.client.get("/api/transaction_filter_options").get_json()
         self.assertEqual(options["trips"][0]["id"], "trip_1")
         self.assertEqual(options["rental_properties"][0]["id"], "rprop_1")
+
+    def test_transaction_options_include_trip_without_transactions(self):
+        options = self.client.get("/api/transaction_filter_options").get_json()
+        empty_trip = next(trip for trip in options["trips"] if trip["id"] == "trip_2")
+        self.assertEqual(empty_trip["label"], "2026 Sweden")
+        self.assertEqual(empty_trip["tx_count"], 0)
 
     def test_review_clears_irrelevant_assignment_fields(self):
         res = self.client.post(

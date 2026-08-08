@@ -17,6 +17,7 @@ export type TransactionRow = {
   IsB?: string;
   Ratio?: number;
   Mown?: number;
+  IsReimbursement?: number;
   Note?: string;
   SubType?: string;
 };
@@ -54,6 +55,7 @@ export function buildTransactionReviewPayload(transaction: TransactionRow) {
     is_b: transaction.IsB || "n",
     ratio: transaction.Ratio ?? 1,
     mown: transaction.Mown ?? 0,
+    is_reimbursement: transaction.IsReimbursement === 1,
     note: transaction.Note || "",
     subtype: transaction.SubType || "",
   };

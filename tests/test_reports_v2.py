@@ -32,12 +32,14 @@ class ReportsV2Tests(unittest.TestCase):
                 ('travel_1', '2026-05-01', 'Travel', 'Airline', 100, 'outflow', 'a1', 'Flight', 'old note A', 1, 0, -100, 'trip_1', NULL, 'u1'),
                 ('travel_2', '2026-05-02', 'Travel', 'Hotel', 200, 'outflow', 'a1', 'Hotel', 'old note B', 1, 0, -200, 'trip_1', NULL, 'u1'),
                 ('travel_refund', '2026-05-03', 'Travel', 'Refund', 50, 'inflow', 'a1', 'Hotel', 'refund note', 1, 0, 50, 'trip_1', NULL, 'u1'),
+                ('travel_reimbursement', '2026-05-04', 'Travel', 'Work hotel', 125, 'outflow', 'a1', 'Hotel', 'reimbursable', 1, 0, -125, 'trip_1', NULL, 'u1'),
                 ('travel_unassigned', '2026-06-01', 'Travel', 'Taxi', 50, 'outflow', 'a1', 'Transport', '', 1, 0, -50, NULL, NULL, 'u1'),
                 ('rental_1', '2026-06-01', 'Rentals', 'Bank', 2400, 'outflow', 'a1', 'Mortgage', 'old property A', 1, 0, -2400, NULL, 'rprop_1', 'u1'),
                 ('rental_2', '2026-06-02', 'Rentals', 'Tenant', 3000, 'inflow', 'a1', 'Rent', 'old property B', 1, 0, 3000, NULL, 'rprop_1', 'u1'),
                 ('rental_unassigned', '2026-06-03', 'Rentals', 'Repair', 150, 'outflow', 'a1', 'Maintenance', '', 1, 0, -150, NULL, NULL, 'u1')
                 """
             )
+            conn.execute("UPDATE transactions SET is_reimbursement = 1 WHERE transaction_id = 'travel_reimbursement'")
             conn.commit()
         with self.client.session_transaction() as session:
             session["user_id"] = "u1"

@@ -1629,8 +1629,8 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
     if old_acc_ids and new_acc_ids:
         placeholders = ",".join(["?"] * len(old_acc_ids))
         cursor.execute(
-            f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched "
-            f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
+            f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched, is_reimbursement "
+            f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '' OR is_reimbursement = 1)",
             [user_id] + old_acc_ids
         )
         old_txs = [dict(r) for r in cursor.fetchall()]
@@ -1665,12 +1665,12 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
                 conn.execute(
                     """
                     UPDATE transactions
-                    SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?
+                    SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?, is_reimbursement = ?
                     WHERE transaction_id = ? AND user_id = ?
                     """,
                     (
                         tx['type'], tx['subtype'], tx['is_b'], tx['ratio'], tx['ipay'], tx['bpay'], tx['mown'], tx['note'],
-                        tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id, user_id
+                        tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], tx['is_reimbursement'], best_match_id, user_id
                     )
                 )
                 migrated_transactions += 1
@@ -1746,8 +1746,8 @@ def delete_cached_accounts():
                 # Find all custom or reviewed transactions from the old accounts
                 placeholders = ",".join(["?"] * len(old_acc_ids))
                 cursor.execute(
-                    f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched "
-                    f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '')",
+                    f"SELECT date, amount, merchant, type, subtype, is_b, ratio, ipay, bpay, mown, note, reviewed, imported_from_legacy, legacy_matched, is_reimbursement "
+                    f"FROM transactions WHERE user_id = ? AND account_name IN ({placeholders}) AND (reviewed = 1 OR type != 'OTHER' OR note != '' OR is_reimbursement = 1)",
                     [user_id] + old_acc_ids
                 )
                 old_txs = [dict(r) for r in cursor.fetchall()]
@@ -1781,12 +1781,12 @@ def delete_cached_accounts():
                             conn.execute(
                                 """
                                 UPDATE transactions
-                                SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?
+                                SET type = ?, subtype = ?, is_b = ?, ratio = ?, ipay = ?, bpay = ?, mown = ?, note = ?, reviewed = ?, imported_from_legacy = ?, legacy_matched = ?, is_reimbursement = ?
                                 WHERE transaction_id = ? AND user_id = ?
                                 """,
                                 (
                                     tx['type'], tx['subtype'], tx['is_b'], tx['ratio'], tx['ipay'], tx['bpay'], tx['mown'], tx['note'], 
-                                    tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], best_match_id, user_id
+                                    tx['reviewed'], tx['imported_from_legacy'], tx['legacy_matched'], tx['is_reimbursement'], best_match_id, user_id
                                 )
                             )
             

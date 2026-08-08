@@ -77,7 +77,7 @@ export function TrendChart({
   const point = history[activeIndex]!;
   const labels = chartAxisLabels(history[0].date, history.at(-1)!.date, range);
   const selectIndex = (locationX: number) => {
-    const index = nearestPointIndex(locationX, width, history.length);
+    const index = nearestPointIndex(locationX, width, history.length, width * padding / chartWidth);
     setActive(index);
     return index;
   };
@@ -107,6 +107,7 @@ export function TrendChart({
         ))}
       </View>
       <Pressable
+        hitSlop={{ bottom: 12, left: 12, right: 12, top: 12 }}
         onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
         onPress={onPointPress ? (event) => onPointPress(history[selectIndex(event.nativeEvent.locationX)] as HistoryPoint) : undefined}
         {...responder}

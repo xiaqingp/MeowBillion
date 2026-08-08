@@ -497,7 +497,8 @@ def init_db():
             'prediction_confidence': 'REAL DEFAULT 0',
             'prediction_reason': "TEXT DEFAULT ''",
             'trip_id': 'TEXT',
-            'rental_property_id': 'TEXT'
+            'rental_property_id': 'TEXT',
+            'is_reimbursement': 'INTEGER DEFAULT 0'
         }
         
         for col_name, col_type in new_columns.items():

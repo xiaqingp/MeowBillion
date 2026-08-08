@@ -19,6 +19,7 @@ test('builds net worth from the same allocation formula as the web dashboard', (
       ],
     },
     unreviewedCount: 17,
+    reimbursementOutstanding: 325,
     history: [],
     historyUnavailable: true,
   });
@@ -27,6 +28,7 @@ test('builds net worth from the same allocation formula as the web dashboard', (
   assert.equal(dashboard.monthlyIncome, 6000);
   assert.equal(dashboard.monthlyExpense, 1800);
   assert.equal(dashboard.unreviewedCount, 17);
+  assert.equal(dashboard.reimbursementOutstanding, 325);
   assert.equal(dashboard.historyUnavailable, true);
 });
 
@@ -69,6 +71,11 @@ test('selects the closest chart point for a horizontal touch location', () => {
   assert.equal(nearestPointIndex(0, 300, 4), 0);
   assert.equal(nearestPointIndex(149, 300, 4), 1);
   assert.equal(nearestPointIndex(300, 300, 4), 3);
+});
+
+test('uses the plotted inset to make the rightmost chart point easier to select', () => {
+  assert.equal(nearestPointIndex(290, 300, 30, 10), 29);
+  assert.equal(nearestPointIndex(10, 300, 30, 10), 0);
 });
 
 test('filters allocation groups and totals by a selected asset bucket', () => {

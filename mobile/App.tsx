@@ -17,6 +17,7 @@ import {
 import {
   ArrowLeft,
   ChartNoAxesCombined,
+  HandCoins,
   House,
   Landmark,
   Plane,
@@ -108,6 +109,7 @@ type Transaction = {
   IsB?: string;
   Ratio?: number;
   Mown?: number;
+  IsReimbursement?: number;
   Note?: string;
   SubType?: string;
   Pending?: number;
@@ -187,6 +189,7 @@ export default function App() {
         allocation,
         analysis,
         transactions,
+        reimbursement,
         credentials,
         history,
       ] = await Promise.all([
@@ -202,6 +205,7 @@ export default function App() {
         api.get<{ total_count?: number }>(
           "/api/transactions?reviewed_filter=unreviewed&page=1&limit=1",
         ),
+        api.get<{ to_be_reimbursed?: number }>("/api/reimbursement_summary"),
         api.get<{ last_success_at?: string; last_sync_time?: string }>(
           "/api/credentials_status",
         ),
@@ -213,6 +217,7 @@ export default function App() {
           allocation,
           analysis,
           unreviewedCount: Number(transactions.total_count || 0),
+          reimbursementOutstanding: Number(reimbursement.to_be_reimbursed || 0),
           history: history.history,
           historyUnavailable: history.unavailable,
         }),
@@ -1185,6 +1190,14 @@ function HomeScreen({
                 tone="rose"
               />
             </View>
+            <View style={styles.metricRow}>
+              <Metric
+                label="To Be Reimbursed"
+                icon={<HandCoins color="#c58a28" size={18} />}
+                value={dashboard.reimbursementOutstanding}
+                tone="amber"
+              />
+            </View>
             <Pressable onPress={onTransactions} style={styles.pendingEntry}>
               <View>
                 <Text style={styles.pendingTitle}>Pending transactions</Text>
@@ -1353,13 +1366,17 @@ function Metric({
   label: string;
   icon: React.ReactNode;
   value: number;
-  tone: "green" | "rose";
+  tone: "green" | "rose" | "amber";
 }) {
   return (
     <View
       style={[
         styles.metric,
-        tone === "green" ? styles.inflowMetric : styles.outflowMetric,
+        tone === "green"
+          ? styles.inflowMetric
+          : tone === "amber"
+            ? styles.reimbursementMetric
+            : styles.outflowMetric,
       ]}
     >
       <View style={styles.metricHeader}>
@@ -1367,7 +1384,11 @@ function Metric({
         <View
           style={[
             styles.kpiIcon,
-            tone === "green" ? styles.inflowIcon : styles.outflowIcon,
+            tone === "green"
+              ? styles.inflowIcon
+              : tone === "amber"
+                ? styles.reimbursementIcon
+                : styles.outflowIcon,
           ]}
         >
           {icon}
@@ -1376,7 +1397,11 @@ function Metric({
       <Text
         style={[
           styles.metricValue,
-          tone === "green" ? styles.green : styles.rose,
+          tone === "green"
+            ? styles.green
+            : tone === "amber"
+              ? styles.amber
+              : styles.rose,
         ]}
       >
         {formatMoney(value)}
@@ -1744,6 +1769,7 @@ const styles = StyleSheet.create({
   netWorthIcon: { backgroundColor: "#E8F9F8" },
   inflowIcon: { backgroundColor: "#e8f8f2" },
   outflowIcon: { backgroundColor: "#fff0f3" },
+  reimbursementIcon: { backgroundColor: "#fff6e8" },
   netWorthLabel: { color: "#687893", fontSize: 13, fontWeight: "600" },
   netWorthValue: {
     color: "#182033",
@@ -1770,11 +1796,13 @@ const styles = StyleSheet.create({
   },
   inflowMetric: { borderLeftColor: "#10b981" },
   outflowMetric: { borderLeftColor: "#f43f5e" },
+  reimbursementMetric: { borderLeftColor: "#c58a28" },
   metricLabel: { color: "#687893", flex: 1, fontSize: 12, fontWeight: "600" },
   metricHeader: { alignItems: "center", flexDirection: "row", gap: 5 },
   metricValue: { fontSize: 18, fontWeight: "700", marginTop: 8 },
   green: { color: "#159f72" },
   rose: { color: "#dc607a" },
+  amber: { color: "#a86f13" },
   pendingEntry: {
     alignItems: "center",
     backgroundColor: "#fff",

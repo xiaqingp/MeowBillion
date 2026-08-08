@@ -95,7 +95,7 @@ export function renderTransactionsList() {
 
     const creatorHtml = `
         <tr class="create-trigger-row" id="create-trigger-row" onclick="event.stopPropagation()">
-            <td colspan="9">
+            <td colspan="10">
                 <div class="create-trigger-btn" onclick="toggleCreatePanel(true)">
                     <i data-lucide="plus-circle" style="width:14px;height:14px;margin-right:6px;vertical-align:middle;"></i>
                     Create manual transaction / quick templates
@@ -133,9 +133,10 @@ export function renderTransactionsList() {
             <td><select id="create-tx-subtype" class="table-select" style="width:100%;"></select></td>
             <td><span class="text-muted">-</span></td>
             <td><input type="text" id="create-tx-note" class="table-input" placeholder="Note..." style="width:100%;"></td>
+            <td class="reimbursement-cell"><input type="checkbox" id="create-tx-reimbursement" class="reimbursement-checkbox" title="To be reimbursed" aria-label="To be reimbursed"></td>
         </tr>
         <tr class="create-form-row" id="create-details-row" style="display:none;" onclick="event.stopPropagation()">
-            <td colspan="9">
+            <td colspan="10">
                 <div class="review-panel" style="padding: 14px; background-color: var(--bg-main); border-radius: 8px; border: 1px solid var(--border-color);">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 14px;">
                         <div style="display:flex; flex-direction:column; gap:4px;">
@@ -179,7 +180,7 @@ export function renderTransactionsList() {
     if (state.transactions.length === 0) {
         const trEmpty = document.createElement("tr");
         trEmpty.innerHTML = `
-            <td colspan="9" style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
+            <td colspan="10" style="text-align:center; padding: 40px 20px; color: var(--text-muted);">
                 <i data-lucide="inbox" style="width:32px; height:32px; margin-bottom:12px; opacity:0.5;"></i>
                 <p style="font-size:14px; font-weight:600;">No matching transactions</p>
                 <p style="font-size:12px; margin-top:4px;">Try adjusting filters, or sync the latest bank transactions.</p>
@@ -283,6 +284,12 @@ export function renderTransactionsList() {
             <td>${subtypeSelectHtml}</td>
             <td>${assignmentCellHtml}</td>
             <td>${noteInputHtml}</td>
+            <td class="reimbursement-cell" onclick="event.stopPropagation()">
+                <input type="checkbox" id="reimbursement-input-${t.TransactionID}" class="reimbursement-checkbox" ${t.IsReimbursement === 1 ? 'checked' : ''} ${disabledAttr}
+                    title="${isPending ? 'Available when posted' : (isConfirmed ? 'De-review to change' : 'To be reimbursed')}"
+                    aria-label="Mark ${escapeHtml(t.Merchant)} as reimbursement"
+                >
+            </td>
         `;
         tbody.appendChild(tr);
 
@@ -338,7 +345,7 @@ export function renderTransactionsList() {
         }
 
         detailTr.innerHTML = `
-            <td colspan="9">
+            <td colspan="10">
                 <div class="detail-container" style="display:flex; flex-direction:column; gap:16px;">
                     <!-- Primary Metadata Row -->
                     <div style="display: flex; gap: 24px; font-size:12px; color:var(--text-muted); border-bottom: 1px solid var(--border-color); padding-bottom: 8px; flex-wrap: wrap;">
@@ -567,9 +574,10 @@ export async function submitTransactionReview(txId, event) {
     const assignmentValue = assignmentSelect?.value || "";
     const tripId = assignmentKindValue === "trip" ? assignmentValue : "";
     const rentalPropertyId = assignmentKindValue === "rental_property" ? assignmentValue : "";
+    const isReimbursement = document.getElementById(`reimbursement-input-${txId}`)?.checked || false;
     
     try {
-        const res = await updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId, rentalPropertyId);
+        const res = await updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId, rentalPropertyId, isReimbursement);
         if (res.status === "success") {
             const { loadData } = await import('../app.js');
             await loadData({ preserveScroll: true });

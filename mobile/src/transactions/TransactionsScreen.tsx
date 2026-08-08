@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -43,6 +44,7 @@ export type Transaction = {
   IsB?: string;
   Ratio?: number;
   Mown?: number;
+  IsReimbursement?: number;
   Note?: string;
   SubType?: string;
   Pending?: number;
@@ -195,6 +197,7 @@ export function TransactionsScreen({ api, formatMoney, errorMessage }: Props) {
                     : [item.Type || "Uncategorized", item.SubType]
                         .filter(Boolean)
                         .join(" / ")}
+                  {item.IsReimbursement ? " / Reimbursement" : ""}
                 </Text>
               </View>
               <Text
@@ -297,6 +300,7 @@ function EditorModal({
   const [subtype, setSubtype] = useState("");
   const [tripId, setTripId] = useState("");
   const [propertyId, setPropertyId] = useState("");
+  const [isReimbursement, setIsReimbursement] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -316,6 +320,7 @@ function EditorModal({
     setSubtype(transaction.SubType || "");
     setTripId(transaction.TripID || "");
     setPropertyId(transaction.RentalPropertyID || "");
+    setIsReimbursement(transaction.IsReimbursement === 1);
     setDeleteArmed(false);
     setCandidates([]);
     setError("");
@@ -456,6 +461,19 @@ function EditorModal({
                   style={[s.input, s.note, readOnly && s.readOnlyInput]}
                   value={note}
                 />
+                <View style={[s.switchRow, readOnly && s.readOnlyInput]}>
+                  <View style={s.switchCopy}>
+                    <Text style={s.switchLabel}>Reimbursement</Text>
+                    <Text style={s.meta}>Include this transaction in the reimbursement total.</Text>
+                  </View>
+                  <Switch
+                    disabled={readOnly}
+                    onValueChange={setIsReimbursement}
+                    thumbColor="#ffffff"
+                    trackColor={{ false: "#cfd6df", true: "#0ABAB5" }}
+                    value={isReimbursement}
+                  />
+                </View>
                 {error ? <Text style={s.errorText}>{error}</Text> : null}
                 {!transaction.Reviewed ? (
                   <Button
@@ -470,6 +488,7 @@ function EditorModal({
                           subtype,
                           trip_id: tripId,
                           rental_property_id: propertyId,
+                          is_reimbursement: isReimbursement,
                         }),
                       )
                     }
@@ -573,6 +592,7 @@ function CreateModal({
   const [type, setType] = useState("Other");
   const [subtype, setSubtype] = useState("");
   const [direction, setDirection] = useState("outflow");
+  const [isReimbursement, setIsReimbursement] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function save() {
@@ -589,6 +609,7 @@ function CreateModal({
         subtype,
         direction,
         reviewed: 1,
+        is_reimbursement: isReimbursement,
       });
       await onSaved();
     } catch (requestError) {
@@ -638,6 +659,18 @@ function CreateModal({
                 active={direction === "inflow"}
                 label="Inflow"
                 onPress={() => setDirection("inflow")}
+              />
+            </View>
+            <View style={s.switchRow}>
+              <View style={s.switchCopy}>
+                <Text style={s.switchLabel}>Reimbursement</Text>
+                <Text style={s.meta}>Include this transaction in the reimbursement total.</Text>
+              </View>
+              <Switch
+                onValueChange={setIsReimbursement}
+                thumbColor="#ffffff"
+                trackColor={{ false: "#cfd6df", true: "#0ABAB5" }}
+                value={isReimbursement}
               />
             </View>
             <Label text="Category" />
@@ -1238,6 +1271,19 @@ const s = StyleSheet.create({
     paddingHorizontal: 11,
   },
   readOnlyInput: { backgroundColor: "#f0f2f6", color: "#657087" },
+  switchRow: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderColor: "#dfe4ed",
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: 13,
+    minHeight: 58,
+    paddingHorizontal: 11,
+  },
+  switchCopy: { flex: 1, paddingRight: 10 },
+  switchLabel: { color: "#263047", fontSize: 12, fontWeight: "700" },
   dateField: {
     alignItems: "center",
     backgroundColor: "#fff",

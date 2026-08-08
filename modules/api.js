@@ -90,6 +90,12 @@ export async function fetchMonthlyAnalysisApi() {
     return await res.json();
 }
 
+export async function fetchReimbursementSummaryApi() {
+    const res = await fetch("/api/reimbursement_summary");
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+}
+
 export async function fetchTravelAnalysisApi() {
     const res = await fetch("/api/travel_analysis");
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -102,7 +108,7 @@ export async function fetchRentalAnalysisApi() {
     return await res.json();
 }
 
-export async function updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId = "", rentalPropertyId = "") {
+export async function updateTransactionReview(txId, type, isB, ratio, mown, note, subtype, tripId = "", rentalPropertyId = "", isReimbursement = false) {
     const res = await fetch("/api/update_transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,7 +121,8 @@ export async function updateTransactionReview(txId, type, isB, ratio, mown, note
             note,
             subtype,
             trip_id: tripId,
-            rental_property_id: rentalPropertyId
+            rental_property_id: rentalPropertyId,
+            is_reimbursement: isReimbursement
         })
     });
     return await res.json();

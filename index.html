@@ -134,6 +134,13 @@
                             </div>
                             <h2 class="card-value" id="dash-month-expense">$0.00</h2>
                         </div>
+                        <div class="card metric-card accent-warning">
+                            <div class="card-header">
+                                <span class="card-label">To Be Reimbursed</span>
+                                <div class="card-icon"><i data-lucide="hand-coins"></i></div>
+                            </div>
+                            <h2 class="card-value" id="dash-reimbursement">$0.00</h2>
+                        </div>
                     </div>
                     
                     <!-- Charts Layout -->
@@ -368,6 +375,7 @@
                                     <col style="width: 132px;">
                                     <col style="width: 168px;">
                                     <col style="width: 160px;">
+                                    <col style="width: 56px;">
                                 </colgroup>
                                 <thead>
                                     <tr>
@@ -380,6 +388,7 @@
                                         <th>Subcategory</th>
                                         <th>Trip / Property</th>
                                         <th>Note</th>
+                                        <th class="reimbursement-cell" title="To be reimbursed">Reimb.</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tx-tbody">

@@ -39,6 +39,7 @@ export function buildDashboard({
   allocation,
   analysis,
   unreviewedCount,
+  reimbursementOutstanding,
   history,
   historyUnavailable = false,
 }: {
@@ -46,6 +47,7 @@ export function buildDashboard({
   allocation: Allocation;
   analysis: MonthlyAnalysis;
   unreviewedCount: number;
+  reimbursementOutstanding: number;
   history: HistoryPoint[];
   historyUnavailable?: boolean;
 }) {
@@ -60,6 +62,7 @@ export function buildDashboard({
     monthlyIncome: latestMonth?.income || 0,
     monthlyExpense: latestMonth?.expense || 0,
     unreviewedCount,
+    reimbursementOutstanding,
     history,
     historyUnavailable,
     portfolio: buildPortfolioRows(allocation),
@@ -109,7 +112,9 @@ export function filterAllocationGroupsByBucket(groups: AllocationGroup[], bucket
   }).filter((group) => group.accounts.length > 0);
 }
 
-export function nearestPointIndex(locationX: number, width: number, pointCount: number) {
+export function nearestPointIndex(locationX: number, width: number, pointCount: number, edgePadding = 0) {
   if (pointCount <= 1 || width <= 0) return 0;
-  return Math.max(0, Math.min(pointCount - 1, Math.round((locationX / width) * (pointCount - 1))));
+  const plotWidth = Math.max(1, width - edgePadding * 2);
+  const plotX = Math.max(0, Math.min(plotWidth, locationX - edgePadding));
+  return Math.max(0, Math.min(pointCount - 1, Math.round((plotX / plotWidth) * (pointCount - 1))));
 }
