@@ -213,7 +213,6 @@ export default function App() {
       ]);
       setDashboard({
         ...buildDashboard({
-          accounts,
           allocation,
           analysis,
           unreviewedCount: Number(transactions.total_count || 0),

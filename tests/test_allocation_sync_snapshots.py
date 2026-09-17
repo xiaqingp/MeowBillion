@@ -163,6 +163,86 @@ class AllocationSyncSnapshotTests(unittest.TestCase):
         current = self.client.get("/api/allocation_accounts").get_json()
         self.assertAlmostEqual(history[-1]["Net Worth"], current["net_worth"])
 
+    def test_inactive_account_is_excluded_from_current_net_worth(self):
+        with database.get_db() as conn:
+            conn.execute("UPDATE accounts SET active = 0 WHERE account_id = 'checking'")
+            conn.commit()
+
+        current = self.client.get("/api/allocation_accounts").get_json()
+        accounts = self.client.get("/api/accounts").get_json()
+
+        self.assertNotIn("checking", {row["account_id"] for row in current["accounts"]})
+        self.assertAlmostEqual(current["net_worth"], 200)
+        self.assertEqual(next(row for row in accounts if row["account_id"] == "checking")["active"], 0)
+
+    def test_daily_snapshot_is_frozen_and_inactive_balance_stops_at_last_observation(self):
+        with database.get_db() as conn:
+            conn.execute("UPDATE accounts SET active = 0 WHERE account_id = 'checking'")
+            conn.executemany(
+                """
+                INSERT INTO account_balances_history
+                    (account_id, date, balance_current, balance_available, user_id)
+                VALUES (?, ?, ?, ?, 'u1')
+                """,
+                [
+                    ("checking", "2026-07-15", 100, 100),
+                    ("investment", "2026-07-15", 200, 200),
+                    ("investment", "2026-07-16", 210, 210),
+                ],
+            )
+            conn.execute(
+                """
+                INSERT INTO allocation_history_snapshots
+                    (date, cash, stock, bond, real_estate, liabilities, source, user_id)
+                VALUES ('2026-07-16', 999, 0, 0, 0, 0, 'daily_sync', 'u1')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO account_value_estimates
+                    (account_id, date, value, cash_pct, stock_pct, bond_pct, real_estate_pct, user_id)
+                VALUES ('checking', '2026-07-16', 50, 100, 0, 0, 0, 'u1')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO manual_assets
+                    (asset_id, name, value, real_estate_pct, active, user_id)
+                VALUES ('home', 'Home', 50, 100, 1, 'u1')
+                """
+            )
+            conn.execute(
+                "INSERT INTO manual_asset_values (asset_id, date, value, user_id) VALUES ('home', '2026-07-16', 50, 'u1')"
+            )
+            conn.commit()
+
+        history = self.client.get("/api/allocation_history").get_json()["history"]
+        july_15 = next(row for row in history if row["date"] == "2026-07-15")
+        july_16 = next(row for row in history if row["date"] == "2026-07-16")
+
+        self.assertAlmostEqual(july_15["Net Worth"], 350)
+        self.assertAlmostEqual(july_16["Net Worth"], 999)
+        self.assertAlmostEqual(july_16["Cash"], 999)
+        self.assertAlmostEqual(july_16["Real Estate"], 0)
+
+    def test_current_allocation_snapshot_is_persisted_per_user_and_date(self):
+        routes_plaid.persist_current_allocation_history_snapshot("u1", "2026-07-17")
+
+        with database.get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT cash, stock, liabilities, net_worth, source
+                FROM allocation_history_snapshots
+                WHERE user_id = 'u1' AND date = '2026-07-17'
+                """
+            ).fetchone()
+
+        self.assertEqual(row["source"], "daily_sync")
+        self.assertAlmostEqual(row["cash"], 100)
+        self.assertAlmostEqual(row["stock"], 0)
+        self.assertAlmostEqual(row["liabilities"], 0)
+        self.assertAlmostEqual(row["net_worth"], 300)
+
     def test_failed_holdings_refresh_keeps_last_successful_snapshot(self):
         with database.get_db() as conn:
             conn.execute(

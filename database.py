@@ -300,7 +300,8 @@ def init_db():
             balance_current REAL,
             balance_available REAL,
             item_id TEXT,
-            institution_name TEXT
+            institution_name TEXT,
+            active INTEGER DEFAULT 1
         )
         ''')
         # Create base transactions table
@@ -378,13 +379,16 @@ def init_db():
         ''')
         conn.execute('''
         CREATE TABLE IF NOT EXISTS allocation_history_snapshots (
-            date TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
             cash REAL DEFAULT 0,
             stock REAL DEFAULT 0,
             bond REAL DEFAULT 0,
             real_estate REAL DEFAULT 0,
             liabilities REAL DEFAULT 0,
-            source TEXT DEFAULT 'imported'
+            net_worth REAL,
+            source TEXT DEFAULT 'imported',
+            PRIMARY KEY (user_id, date)
         )
         ''')
         conn.execute('''
@@ -398,6 +402,15 @@ def init_db():
             real_estate_pct REAL DEFAULT 0,
             source TEXT DEFAULT 'estimated',
             PRIMARY KEY (account_id, date)
+        )
+        ''')
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS ignored_plaid_transactions (
+            user_id TEXT NOT NULL,
+            transaction_id TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, transaction_id)
         )
         ''')
         conn.execute('''
@@ -473,6 +486,35 @@ def init_db():
                 print(f"Adding {table} column: user_id (TEXT)")
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
 
+        snapshot_info = conn.execute("PRAGMA table_info(allocation_history_snapshots)").fetchall()
+        snapshot_pk = [row[1] for row in sorted(snapshot_info, key=lambda row: row[5]) if row[5]]
+        if snapshot_pk == ['date']:
+            conn.execute("ALTER TABLE allocation_history_snapshots RENAME TO allocation_history_snapshots_legacy")
+            conn.execute('''
+                CREATE TABLE allocation_history_snapshots (
+                    user_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    cash REAL DEFAULT 0,
+                    stock REAL DEFAULT 0,
+                    bond REAL DEFAULT 0,
+                    real_estate REAL DEFAULT 0,
+                    liabilities REAL DEFAULT 0,
+                    net_worth REAL,
+                    source TEXT DEFAULT 'imported',
+                    PRIMARY KEY (user_id, date)
+                )
+            ''')
+            conn.execute('''
+                INSERT INTO allocation_history_snapshots
+                    (user_id, date, cash, stock, bond, real_estate, liabilities, net_worth, source)
+                SELECT COALESCE(user_id, ''), date, cash, stock, bond, real_estate, liabilities, NULL, source
+                FROM allocation_history_snapshots_legacy
+            ''')
+            conn.execute("DROP TABLE allocation_history_snapshots_legacy")
+        snapshot_columns = [row[1] for row in conn.execute("PRAGMA table_info(allocation_history_snapshots)")]
+        if 'net_worth' not in snapshot_columns:
+            conn.execute("ALTER TABLE allocation_history_snapshots ADD COLUMN net_worth REAL")
+
         # Dynamic Schema Upgrades: Auto-migration check: add new columns if they do not exist
         cursor.execute("PRAGMA table_info(transactions)")
         existing_columns = [row[1] for row in cursor.fetchall()]
@@ -513,7 +555,8 @@ def init_db():
             'balance_current': 'REAL',
             'balance_available': 'REAL',
             'item_id': 'TEXT',
-            'institution_name': 'TEXT'
+            'institution_name': 'TEXT',
+            'active': 'INTEGER DEFAULT 1'
         }
         for col_name, col_type in new_acc_columns.items():
             if col_name not in existing_acc_columns:

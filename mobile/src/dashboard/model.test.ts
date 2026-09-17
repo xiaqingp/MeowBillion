@@ -1,17 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDashboard, buildPortfolioRows, filterAllocationGroupsByBucket, filterHistoryByRange, groupAllocationAccounts, nearestPointIndex } from './model';
+import { buildDashboard, buildPortfolioRows, chartPointPositions, filterAllocationGroupsByBucket, filterHistoryByRange, groupAllocationAccounts, nearestPointIndex } from './model';
 
-test('builds net worth from the same allocation formula as the web dashboard', () => {
+test('uses the backend net worth without recalculating it from frontend totals', () => {
   const dashboard = buildDashboard({
-    accounts: [
-      { account_id: 'cash', name: 'Checking', type: 'depository', balance_current: 1250 },
-      { account_id: 'legacy', name: 'Legacy', type: 'depository', balance_current: 500, is_virtual: true },
-      { account_id: 'card-positive', name: 'Card', type: 'credit', balance_current: 200 },
-      { account_id: 'card-negative', name: 'Card refund', type: 'credit', balance_current: -50 },
-    ],
-    allocation: { totals: { Cash: 1300, Stock: 600, Bond: 100, 'Real Estate': 400 } },
+    allocation: { net_worth: 2250, totals: { Cash: 1, Stock: 2, Bond: 3, 'Real Estate': 4 } },
     analysis: {
       recent_months: [
         { month: '2026-06', income: 5000, expense: 2000 },
@@ -68,14 +62,25 @@ test('groups allocation accounts by institution without changing backend bucket 
 });
 
 test('selects the closest chart point for a horizontal touch location', () => {
-  assert.equal(nearestPointIndex(0, 300, 4), 0);
-  assert.equal(nearestPointIndex(149, 300, 4), 1);
-  assert.equal(nearestPointIndex(300, 300, 4), 3);
+  const positions = chartPointPositions(['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01']);
+  assert.equal(nearestPointIndex(0, 300, positions), 0);
+  assert.equal(nearestPointIndex(149, 300, positions), 1);
+  assert.equal(nearestPointIndex(300, 300, positions), 3);
 });
 
 test('uses the plotted inset to make the rightmost chart point easier to select', () => {
-  assert.equal(nearestPointIndex(290, 300, 30, 10), 29);
-  assert.equal(nearestPointIndex(10, 300, 30, 10), 0);
+  const positions = chartPointPositions(Array.from({ length: 30 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`));
+  assert.equal(nearestPointIndex(290, 300, positions, 10), 29);
+  assert.equal(nearestPointIndex(10, 300, positions, 10), 0);
+});
+
+test('spaces and selects sparse chart history by time instead of point count', () => {
+  const positions = chartPointPositions(['2025-01-01', '2025-01-02', '2026-01-01']);
+  assert.equal(positions[0], 0);
+  assert.ok(positions[1]! < 0.01);
+  assert.equal(positions[2], 1);
+  assert.equal(nearestPointIndex(150, 300, positions), 1);
+  assert.equal(nearestPointIndex(299, 300, positions), 2);
 });
 
 test('filters allocation groups and totals by a selected asset bucket', () => {

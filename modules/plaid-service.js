@@ -33,7 +33,7 @@ export function renderAccountsList(accounts) {
         return;
     }
 
-    accounts.forEach(acc => {
+    accounts.filter(acc => Number(acc.active ?? 1) !== 0).forEach(acc => {
         const item = document.createElement("div");
         item.className = "bank-item";
 

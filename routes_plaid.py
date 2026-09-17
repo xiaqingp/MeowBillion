@@ -527,7 +527,7 @@ def get_accounts():
         cursor.execute("SELECT access_token FROM plaid_tokens WHERE user_id = ?", (user_id,))
         has_plaid = len(cursor.fetchall()) > 0
         
-        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name FROM accounts WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, item_id, institution_name, active FROM accounts WHERE user_id = ?", (user_id,))
         db_accounts = [dict(r) for r in cursor.fetchall()]
         conn.close()
     except Exception as db_err:
@@ -612,6 +612,7 @@ def get_accounts():
                                 "subtype": acc.get('subtype'),
                                 "balance_available": balances.get('available'),
                                 "balance_current": balances.get('current'),
+                                "active": 1,
                                 "currency": balances.get('iso_currency_code', 'USD')
                             })
                     except Exception as token_err:
@@ -657,6 +658,7 @@ def get_accounts():
                     "subtype": acc['subtype'],
                     "balance_available": acc['balance_available'],
                     "balance_current": acc['balance_current'],
+                    "active": acc['active'],
                     "currency": "USD"
                 })
 
@@ -683,6 +685,7 @@ def get_accounts():
                 "subtype": "checking",
                 "balance_available": legacy_balance,
                 "balance_current": legacy_balance,
+                "active": 1,
                 "currency": "USD",
                 "is_virtual": True
             })
@@ -878,6 +881,12 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
     modified = updates.get("modified", [])
     removed = updates.get("removed", [])
     added_ids = {tx.get("transaction_id") for tx in added}
+    ignored_ids = {
+        row[0] for row in cursor.execute(
+            "SELECT transaction_id FROM ignored_plaid_transactions WHERE user_id = ?",
+            (user_id,),
+        )
+    }
     new_count = 0
 
     for removed_tx in removed:
@@ -891,6 +900,8 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
 
     for tx in added + modified:
         tx_id = tx.get("transaction_id")
+        if not tx_id or tx_id in ignored_ids:
+            continue
         amount = float(tx.get("amount", 0))
 
         pf_cat = tx.get("personal_finance_category") or {}
@@ -1489,6 +1500,8 @@ def perform_sync(user_id=None):
     conn.close()
     ALLOCATION_CACHE["time"] = 0.0
     ALLOCATION_CACHE["payload"] = None
+    if succeeded_items:
+        persist_current_allocation_history_snapshot(user_id, today_str)
     status = summarize_sync_results(succeeded_items, failed_items)
     return {
         "status": status,
@@ -2244,7 +2257,7 @@ def load_allocation_history_snapshots():
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT date, cash, stock, bond, real_estate, liabilities, source
+            SELECT date, cash, stock, bond, real_estate, liabilities, net_worth, source
             FROM allocation_history_snapshots
             WHERE user_id = ?
             ORDER BY date ASC
@@ -2262,7 +2275,11 @@ def load_allocation_history_snapshots():
             "liabilities": float(row["liabilities"] or 0.0),
             "source": row["source"] or "snapshot"
         }
-        group["Net Worth"] = group["Cash"] + group["Stock"] + group["Bond"] + group["Real Estate"] - group["liabilities"]
+        group["Net Worth"] = (
+            float(row["net_worth"])
+            if row["net_worth"] is not None
+            else group["Cash"] + group["Stock"] + group["Bond"] + group["Real Estate"] - group["liabilities"]
+        )
         history.append(group)
     return history
 
@@ -2301,8 +2318,8 @@ def load_account_value_estimates():
         ).fetchall()
     return [dict(row) for row in rows]
 
-def build_allocation_accounts_payload(use_cache=True):
-    user_id = current_user_id()
+def build_allocation_accounts_payload(use_cache=True, user_id=None):
+    user_id = user_id or current_user_id()
     now = time.time()
     if use_cache and ALLOCATION_CACHE["user_id"] == user_id and ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
         return ALLOCATION_CACHE["payload"]
@@ -2322,7 +2339,7 @@ def build_allocation_accounts_payload(use_cache=True):
             """
             SELECT account_id, name, official_name, type, subtype, balance_current, balance_available, institution_name, item_id
             FROM accounts
-            WHERE account_id != 'Legacy' AND user_id = ?
+            WHERE account_id != 'Legacy' AND COALESCE(active, 1) = 1 AND user_id = ?
             """,
             (user_id,)
         )
@@ -2459,6 +2476,29 @@ def build_allocation_accounts_payload(use_cache=True):
     ALLOCATION_CACHE["user_id"] = user_id
     return payload
 
+def persist_current_allocation_history_snapshot(user_id, snapshot_date):
+    payload = build_allocation_accounts_payload(use_cache=False, user_id=user_id)
+    totals = payload.get("totals") or {}
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO allocation_history_snapshots
+                (date, cash, stock, bond, real_estate, liabilities, net_worth, source, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'daily_sync', ?)
+            """,
+            (
+                snapshot_date,
+                float(totals.get("Cash") or 0.0),
+                float(totals.get("Stock") or 0.0),
+                float(totals.get("Bond") or 0.0),
+                float(totals.get("Real Estate") or 0.0),
+                float(payload.get("liabilities") or 0.0),
+                float(payload.get("net_worth") or 0.0),
+                user_id,
+            ),
+        )
+        conn.commit()
+
 @plaid_bp.route('/api/allocation_accounts', methods=['GET'])
 def get_allocation_accounts():
     try:
@@ -2579,7 +2619,7 @@ def get_allocation_history():
         with get_db() as conn:
             history_rows = conn.execute(
                 """
-                SELECT h.date, h.account_id, h.balance_current, a.type
+                SELECT h.date, h.account_id, h.balance_current, a.type, COALESCE(a.active, 1) AS active
                 FROM account_balances_history h
                 INNER JOIN accounts a ON h.account_id = a.account_id AND a.user_id = h.user_id
                 WHERE h.user_id = ?
@@ -2621,15 +2661,19 @@ def get_allocation_history():
                 group["Real Estate"] = 0.0
         actual_account_dates = set()
         history_rows_by_date = {}
+        inactive_last_dates = {}
         for row in history_rows:
             date = row["date"]
             if not date:
                 continue
             actual_account_dates.add((row["account_id"], date))
             history_rows_by_date.setdefault(date, []).append(row)
+            if int(row["active"] or 0) == 0:
+                inactive_last_dates[row["account_id"]] = date
 
         latest_balance_by_account = {}
         for date, dated_rows in history_rows_by_date.items():
+            is_daily_snapshot = date in by_date and by_date[date].get("source") == "daily_sync"
             if date in by_date and by_date[date].get("source") in ("imported", "snapshot"):
                 by_date[date] = {
                     "date": date,
@@ -2643,6 +2687,11 @@ def get_allocation_history():
                 }
             for row in dated_rows:
                 latest_balance_by_account[row["account_id"]] = row
+            for account_id, last_date in inactive_last_dates.items():
+                if date > last_date:
+                    latest_balance_by_account.pop(account_id, None)
+            if is_daily_snapshot:
+                continue
             group = by_date.setdefault(date, {
                 "date": date,
                 "Net Worth": 0.0,
@@ -2666,6 +2715,8 @@ def get_allocation_history():
             date = estimate.get("date")
             account_id = estimate.get("account_id")
             if not date or (account_id, date) in actual_account_dates:
+                continue
+            if date in by_date and by_date[date].get("source") == "daily_sync":
                 continue
             group = by_date.setdefault(date, {
                 "date": date,
@@ -2701,15 +2752,17 @@ def get_allocation_history():
 
         for group in by_date.values():
             manual_values = manual_asset_values_by_date.get(group["date"])
-            if manual_values:
-                for key in ASSET_BUCKETS:
-                    group[key] += manual_values.get(key, 0.0)
-            elif group.get("source") not in ("imported", "snapshot"):
-                for key in ASSET_BUCKETS:
-                    group[key] += manual_asset_totals.get(key, 0.0)
-            group["Net Worth"] = (
-                group["Cash"] + group["Stock"] + group["Bond"] + group["Real Estate"] - group["liabilities"]
-            )
+            if group.get("source") != "daily_sync":
+                if manual_values:
+                    for key in ASSET_BUCKETS:
+                        group[key] += manual_values.get(key, 0.0)
+                elif group.get("source") not in ("imported", "snapshot"):
+                    for key in ASSET_BUCKETS:
+                        group[key] += manual_asset_totals.get(key, 0.0)
+            if group.get("source") != "daily_sync":
+                group["Net Worth"] = (
+                    group["Cash"] + group["Stock"] + group["Bond"] + group["Real Estate"] - group["liabilities"]
+                )
 
         today = datetime.now().date().isoformat()
         current = by_date.setdefault(today, {"date": today})
@@ -2954,7 +3007,7 @@ def get_portfolio_allocation():
         cursor = conn.cursor()
         
         # Get all Plaid accounts in database (to count depository cash and unclassified investments)
-        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, institution_name, item_id FROM accounts WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT account_id, name, official_name, type, subtype, balance_current, institution_name, item_id FROM accounts WHERE COALESCE(active, 1) = 1 AND user_id = ?", (user_id,))
         db_accounts = [dict(r) for r in cursor.fetchall()]
         
         # Get all active Plaid tokens

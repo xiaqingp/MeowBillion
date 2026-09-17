@@ -223,7 +223,7 @@ async function initApp() {
         applyTransactionFiltersToControls();
 
         // 5. Render dashboard and tables
-        renderDashboard(state.accounts);
+        renderDashboard();
         initializeNetWorthRangeControl();
         initializeResponsiveChartResizing();
         renderBalanceTrendChart();
@@ -378,7 +378,7 @@ export async function loadData(options = {}) {
         state.trips = trips || [];
         state.rentalProperties = rentalProperties || [];
         
-        renderDashboard(accounts);
+        renderDashboard();
         initializeNetWorthRangeControl();
         renderBalanceTrendChart();
         renderAssetAllocationChart();
@@ -572,24 +572,13 @@ async function checkPlaidConfiguration(preFetchedStatus = null) {
     }
 }
 
-async function renderDashboard(accounts) {
+async function renderDashboard() {
     const cashBalEl = document.getElementById("dash-cash-balance");
     if (cashBalEl) {
         try {
             const allocationPayload = await fetchAllocationAccountsCached();
-            let netWorth = Number(allocationPayload?.net_worth);
-            if (!Number.isFinite(netWorth)) {
-                const totals = allocationPayload?.totals || {};
-                const hasAllocationTotals = ["Cash", "Stock", "Bond", "Real Estate"]
-                    .some(key => Object.hasOwn(totals, key));
-                if (!hasAllocationTotals) throw new Error("Current Net Worth is unavailable");
-                const assetTotal = ["Cash", "Stock", "Bond", "Real Estate"]
-                    .reduce((sum, key) => sum + Number(totals[key] || 0), 0);
-                const liabilities = accounts
-                    .filter(acc => acc.type === "credit" && !acc.is_virtual)
-                    .reduce((sum, acc) => sum + Number(acc.balance_current || 0), 0);
-                netWorth = assetTotal - liabilities;
-            }
+            const netWorth = Number(allocationPayload?.net_worth);
+            if (!Number.isFinite(netWorth)) throw new Error("Current Net Worth is unavailable");
             cashBalEl.textContent = formatCurrency(netWorth);
         } catch (err) {
             console.warn("Unable to load net worth total:", err);
@@ -1132,6 +1121,7 @@ function renderPlaidConnections(accounts, connections = []) {
         } else {
             accList.forEach(acc => {
                 const isCredit = acc.type === "credit";
+                const isInactive = Number(acc.active ?? 1) === 0;
                 const val = acc.balance_current || 0;
                 const displayVal = isCredit ? -val : val;
                 const prefix = displayVal < 0 ? "-" : "";
@@ -1139,7 +1129,7 @@ function renderPlaidConnections(accounts, connections = []) {
                     <div class="settings-account-row">
                         <div>
                             <span>${escapeHtml(acc.name)}</span>
-                            <small>${escapeHtml(acc.subtype || acc.type || "account")}</small>
+                            <small>${escapeHtml(acc.subtype || acc.type || "account")}${isInactive ? " · Inactive" : ""}</small>
                         </div>
                         <strong>${prefix}${formatCurrency(displayVal)}</strong>
                     </div>

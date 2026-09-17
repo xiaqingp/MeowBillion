@@ -58,6 +58,20 @@ def _clean_year(value):
     return int(text) if text.isdigit() else None
 
 
+def _trip_duplicate(conn, user_id, name, year, exclude_id=None):
+    sql = """
+        SELECT id FROM trips
+        WHERE user_id = ?
+          AND COALESCE(year, -1) = COALESCE(?, -1)
+          AND lower(trim(name)) = lower(trim(?))
+    """
+    params = [user_id, year, name]
+    if exclude_id:
+        sql += " AND id != ?"
+        params.append(exclude_id)
+    return conn.execute(sql + " LIMIT 1", params).fetchone()
+
+
 def _clean_float(value):
     if value in (None, ""):
         return None
@@ -232,8 +246,12 @@ def trips_api():
     name = _clean_text(data.get("name"))
     if not name:
         return jsonify({"error": "Trip name is required"}), 400
+    year = _clean_year(data.get("year"))
     trip_id = f"trip_{uuid.uuid4().hex}"
     with get_db() as conn:
+        if _trip_duplicate(conn, user_id, name, year):
+            label = f"{year} {name}" if year else name
+            return jsonify({"error": f"Trip already exists: {label}"}), 409
         conn.execute(
             """
             INSERT INTO trips
@@ -244,7 +262,7 @@ def trips_api():
                 trip_id,
                 user_id,
                 name,
-                _clean_year(data.get("year")),
+                year,
                 _clean_text(data.get("destination")),
                 _clean_float(data.get("budget")),
                 _clean_text(data.get("currency")) or "USD",
@@ -287,6 +305,10 @@ def trip_detail_api(trip_id):
         name = _clean_text(data.get("name", row["name"]))
         if not name:
             return jsonify({"error": "Trip name is required"}), 400
+        year = _clean_year(data.get("year", row["year"]))
+        if _trip_duplicate(conn, user_id, name, year, exclude_id=trip_id):
+            label = f"{year} {name}" if year else name
+            return jsonify({"error": f"Trip already exists: {label}"}), 409
         conn.execute(
             """
             UPDATE trips
@@ -303,7 +325,7 @@ def trip_detail_api(trip_id):
             """,
             (
                 name,
-                _clean_year(data.get("year", row["year"])),
+                year,
                 _clean_text(data.get("destination", row["destination"])),
                 _clean_float(data.get("budget", row["budget"])),
                 _clean_text(data.get("currency", row["currency"])) or "USD",

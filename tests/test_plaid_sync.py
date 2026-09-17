@@ -62,6 +62,15 @@ class PlaidSyncSummaryTests(unittest.TestCase):
         )
         conn.execute(
             """
+            CREATE TABLE ignored_plaid_transactions (
+                user_id TEXT NOT NULL,
+                transaction_id TEXT NOT NULL,
+                PRIMARY KEY (user_id, transaction_id)
+            )
+            """
+        )
+        conn.execute(
+            """
             INSERT INTO transactions
             (transaction_id, date, authorized_date, type, merchant, amount, direction, pending,
              categories, location, payment_channel, account_name, is_b, ratio, ipay, bpay, mown,
@@ -104,6 +113,26 @@ class PlaidSyncSummaryTests(unittest.TestCase):
         self.assertEqual(row["note"], "Keep note")
         self.assertEqual(row["trip_id"], "trip_1")
         self.assertEqual(row["reviewed"], 1)
+
+    def test_ignored_transaction_is_not_reinserted(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE transactions (transaction_id TEXT PRIMARY KEY, imported_from_legacy INTEGER, user_id TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE ignored_plaid_transactions (user_id TEXT, transaction_id TEXT, PRIMARY KEY (user_id, transaction_id))"
+        )
+        conn.execute("INSERT INTO ignored_plaid_transactions VALUES ('u1', 'duplicate')")
+
+        count = apply_plaid_transaction_updates(
+            conn.cursor(),
+            "u1",
+            {"added": [{"transaction_id": "duplicate"}], "modified": [], "removed": []},
+            {"categories": [], "rules": {}},
+        )
+
+        self.assertEqual(count, 0)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

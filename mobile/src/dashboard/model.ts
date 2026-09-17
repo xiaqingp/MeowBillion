@@ -2,14 +2,6 @@ export const ASSET_BUCKETS = ['Cash', 'Stock', 'Bond', 'Real Estate'] as const;
 export type AssetBucket = (typeof ASSET_BUCKETS)[number];
 export type TrendRange = '1M' | '3M' | '6M' | '1Y' | '5Y' | 'ALL';
 
-type Account = {
-  account_id: string;
-  name: string;
-  type: string;
-  balance_current: number | null;
-  is_virtual?: boolean;
-};
-
 export type AllocationAccount = {
   account_id: string;
   institution_name?: string;
@@ -22,6 +14,7 @@ export type AllocationAccount = {
 };
 
 export type Allocation = {
+  net_worth?: number;
   totals?: Partial<Record<AssetBucket, number>>;
   accounts?: AllocationAccount[];
 };
@@ -35,7 +28,6 @@ export type HistoryPoint = { date: string; 'Net Worth': number } & Partial<Recor
 const RANGE_DAYS: Partial<Record<TrendRange, number>> = { '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 365 * 5 };
 
 export function buildDashboard({
-  accounts,
   allocation,
   analysis,
   unreviewedCount,
@@ -43,7 +35,6 @@ export function buildDashboard({
   history,
   historyUnavailable = false,
 }: {
-  accounts: Account[];
   allocation: Allocation;
   analysis: MonthlyAnalysis;
   unreviewedCount: number;
@@ -51,14 +42,12 @@ export function buildDashboard({
   history: HistoryPoint[];
   historyUnavailable?: boolean;
 }) {
-  const assetTotal = ASSET_BUCKETS.reduce((total, bucket) => total + Number(allocation.totals?.[bucket] || 0), 0);
-  const liabilities = accounts
-    .filter((account) => account.type === 'credit' && !account.is_virtual)
-    .reduce((total, account) => total + Number(account.balance_current || 0), 0);
+  const netWorth = Number(allocation.net_worth);
+  if (!Number.isFinite(netWorth)) throw new Error('Current Net Worth is unavailable');
   const latestMonth = analysis.recent_months?.at(-1);
 
   return {
-    netWorth: assetTotal - liabilities,
+    netWorth,
     monthlyIncome: latestMonth?.income || 0,
     monthlyExpense: latestMonth?.expense || 0,
     unreviewedCount,
@@ -112,9 +101,21 @@ export function filterAllocationGroupsByBucket(groups: AllocationGroup[], bucket
   }).filter((group) => group.accounts.length > 0);
 }
 
-export function nearestPointIndex(locationX: number, width: number, pointCount: number, edgePadding = 0) {
-  if (pointCount <= 1 || width <= 0) return 0;
+export function chartPointPositions(dates: string[]) {
+  if (dates.length <= 1) return dates.map(() => 0);
+  const times = dates.map((date) => new Date(`${date}T00:00:00`).getTime());
+  const first = times[0]!;
+  const span = times.at(-1)! - first;
+  return span > 0 && times.every(Number.isFinite)
+    ? times.map((time) => (time - first) / span)
+    : dates.map((_, index) => index / (dates.length - 1));
+}
+
+export function nearestPointIndex(locationX: number, width: number, positions: number[], edgePadding = 0) {
+  if (positions.length <= 1 || width <= 0) return 0;
   const plotWidth = Math.max(1, width - edgePadding * 2);
   const plotX = Math.max(0, Math.min(plotWidth, locationX - edgePadding));
-  return Math.max(0, Math.min(pointCount - 1, Math.round((plotX / plotWidth) * (pointCount - 1))));
+  const target = plotX / plotWidth;
+  return positions.reduce((closest, position, index) =>
+    Math.abs(position - target) < Math.abs(positions[closest]! - target) ? index : closest, 0);
 }

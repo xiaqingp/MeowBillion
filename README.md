@@ -14,11 +14,9 @@ pip install -r requirements.txt
 3. Copy `.env.example` to `.env` and set app-level values such as `APP_SECRET_KEY`.
 4. Start the app:
 
-```powershell
-python server.py
-```
-
-The app listens on `http://127.0.0.1:8090` by default, or the next available port.
+Double-click `start-server.bat` to start the app. It listens on `0.0.0.0:8090`,
+so it is available locally at `http://127.0.0.1:8090` and through the machine's
+Tailscale IP at `http://<tailscale-ip>:8090`. Double-click `stop-server.bat` to stop it.
 On first launch, create the admin account in the setup screen. That first account claims any existing local data; later signups start with empty personal data.
 Each user adds their own Plaid API credentials in Plaid Settings before linking banks.
 

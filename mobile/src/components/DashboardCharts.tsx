@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 
-import { AssetBucket, HistoryPoint, nearestPointIndex, TrendRange } from '../dashboard/model';
+import { AssetBucket, chartPointPositions, HistoryPoint, nearestPointIndex, TrendRange } from '../dashboard/model';
 import { chartAxisLabels, fullChartDateLabel, selectedChartPointIndex, shouldCaptureChartPan } from '../dashboard/chartPresentation';
 
 const COLORS = {
@@ -68,7 +68,8 @@ export function TrendChart({
   const chartWidth = 320;
   const chartHeight = 132;
   const padding = 10;
-  const x = (index: number) => padding + (index / (history.length - 1)) * (chartWidth - padding * 2);
+  const xPositions = chartPointPositions(history.map((point) => point.date));
+  const x = (index: number) => padding + xPositions[index]! * (chartWidth - padding * 2);
   const y = (value: number) => chartHeight - padding - (domainMax === domainMin ? 0.5 : (value - domainMin) / (domainMax - domainMin)) * (chartHeight - padding * 2);
   const points = (key: TrendSeries) => history.map((point, index) => `${x(index)},${y(Number(point[key] || 0))}`).join(' ');
   const lineSeries = series.filter((key) => !barSeries.includes(key));
@@ -77,7 +78,7 @@ export function TrendChart({
   const point = history[activeIndex]!;
   const labels = chartAxisLabels(history[0].date, history.at(-1)!.date, range);
   const selectIndex = (locationX: number) => {
-    const index = nearestPointIndex(locationX, width, history.length, width * padding / chartWidth);
+    const index = nearestPointIndex(locationX, width, xPositions, width * padding / chartWidth);
     setActive(index);
     return index;
   };
@@ -87,6 +88,7 @@ export function TrendChart({
   };
   const responder = {
     onStartShouldSetResponder: () => directTouch,
+    onStartShouldSetResponderCapture: () => directTouch,
     onMoveShouldSetResponder: shouldClaim,
     onMoveShouldSetResponderCapture: shouldClaim,
     onResponderGrant: (event: any) => selectIndex(event.nativeEvent.locationX),

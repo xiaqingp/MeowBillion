@@ -34,6 +34,10 @@ class ContextMetadataApiTests(unittest.TestCase):
         self.assertEqual(created["name"], "Japan")
         self.assertEqual(created["year"], 2026)
 
+        duplicate = self.client.post("/api/trips", json={"name": " japan ", "year": "2026"})
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertIn("2026 japan", duplicate.get_json()["error"])
+
         trip_id = created["id"]
         updated = self.client.patch(
             f"/api/trips/{trip_id}",

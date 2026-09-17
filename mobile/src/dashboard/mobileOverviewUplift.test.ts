@@ -27,3 +27,12 @@ test('net worth chart keeps compact selection and opens full drivers on press', 
   assert.ok(app.includes('NetWorthDriversSheet'));
   assert.ok(app.includes('onPointPress={openNetWorthDrivers}'));
 });
+
+test('account history captures direct touches so dragging selects chart points', () => {
+  const charts = readFileSync(join(root, 'src', 'components', 'DashboardCharts.tsx'), 'utf8');
+  const accountSheet = readFileSync(join(root, 'src', 'accounts', 'AccountDetailSheet.tsx'), 'utf8');
+
+  assert.ok(accountSheet.includes('<TrendChart directTouch'));
+  assert.ok(charts.includes('onStartShouldSetResponderCapture: () => directTouch'));
+  assert.ok(charts.includes('onResponderMove:'));
+});
