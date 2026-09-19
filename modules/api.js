@@ -67,6 +67,7 @@ export async function fetchTransactions(page, limit, filters) {
         direction: filters.direction || "all",
         category: filters.category || "all",
         reviewed_filter: filters.reviewed || "unreviewed",
+        reimbursement_filter: filters.reimbursement || "all",
         start_date: filters.startDate || "",
         end_date: filters.endDate || "",
         account: filters.account || "all",

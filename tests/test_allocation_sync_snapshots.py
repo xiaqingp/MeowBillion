@@ -243,6 +243,45 @@ class AllocationSyncSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(row["liabilities"], 0)
         self.assertAlmostEqual(row["net_worth"], 300)
 
+    def test_background_snapshot_includes_user_overrides_and_manual_assets(self):
+        with database.get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO allocation_overrides
+                    (account_id, cash_pct, stock_pct, bond_pct, real_estate_pct,
+                     unclassified_pct, user_id)
+                VALUES ('investment', 0, 50, 50, 0, 0, 'u1')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO manual_assets
+                    (asset_id, name, asset_type, value, cash_pct, stock_pct,
+                     bond_pct, real_estate_pct, active, user_id)
+                VALUES ('home', 'Home', 'real_estate', 500, 0, 0, 0, 100, 1, 'u1')
+                """
+            )
+            conn.commit()
+
+        # Background sync has no request/session context, so the explicit user ID
+        # must be propagated to both override and manual-asset loaders.
+        routes_plaid.persist_current_allocation_history_snapshot("u1", "2026-07-17")
+
+        with database.get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT cash, stock, bond, real_estate, net_worth
+                FROM allocation_history_snapshots
+                WHERE user_id = 'u1' AND date = '2026-07-17'
+                """
+            ).fetchone()
+
+        self.assertAlmostEqual(row["cash"], 100)
+        self.assertAlmostEqual(row["stock"], 100)
+        self.assertAlmostEqual(row["bond"], 100)
+        self.assertAlmostEqual(row["real_estate"], 500)
+        self.assertAlmostEqual(row["net_worth"], 800)
+
     def test_failed_holdings_refresh_keeps_last_successful_snapshot(self):
         with database.get_db() as conn:
             conn.execute(

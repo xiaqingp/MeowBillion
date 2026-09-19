@@ -9,9 +9,10 @@ export const state = {
     totalPages: 1,
     currentFilters: {
         search: "",
-        direction: "",
-        category: "",
+        direction: "all",
+        category: "all",
         reviewed: "all",
+        reimbursement: "all",
         month: "",
         startDate: "",
         endDate: "",

@@ -125,7 +125,7 @@ def reimbursement_summary(conn, user_id):
     return round(float(row["outstanding"] or 0), 2)
 
 
-def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', subtype='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all'):
+def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', category='all', subtype='all', reviewed_filter='all', start_date='', end_date='', account='all', amount_filter='', assignment='all', reimbursement_filter='all'):
     user_id = current_user_id()
     params = [user_id]
     where_clauses = ["t.user_id = ?"]
@@ -158,6 +158,11 @@ def fetch_paginated_transactions(page=1, limit=100, query='', direction='all', c
         elif kind == 'rental' and assignment_id:
             where_clauses.append("t.rental_property_id = ?")
             params.append(assignment_id)
+
+    if reimbursement_filter == 'yes':
+        where_clauses.append("COALESCE(t.is_reimbursement, 0) = 1")
+    elif reimbursement_filter == 'no':
+        where_clauses.append("COALESCE(t.is_reimbursement, 0) = 0")
 
     parsed_amount = parse_amount_filter(amount_filter)
     if parsed_amount:
@@ -383,8 +388,9 @@ def get_transactions():
         account = request.args.get('account', 'all').strip()
         amount_filter = request.args.get('amount', '').strip()
         assignment = request.args.get('assignment', 'all').strip()
+        reimbursement_filter = request.args.get('reimbursement_filter', 'all').strip().lower()
         
-        result = fetch_paginated_transactions(page, limit, query, direction, category, subtype, reviewed_filter, start_date, end_date, account, amount_filter, assignment)
+        result = fetch_paginated_transactions(page, limit, query, direction, category, subtype, reviewed_filter, start_date, end_date, account, amount_filter, assignment, reimbursement_filter)
         duration = (time.perf_counter() - start) * 1000
         print(f" * [/api/transactions] Fetch took {duration:.2f}ms")
         return jsonify(result)
@@ -796,6 +802,7 @@ def travel_analysis():
                        a.institution_name AS institution_name,
                        t.subtype,
                        t.note,
+                       COALESCE(t.is_reimbursement, 0) AS is_reimbursement,
                        t.trip_id,
                        tr.name AS trip_name,
                        tr.year AS trip_year,
@@ -813,7 +820,6 @@ def travel_analysis():
                 WHERE t.user_id = ?
                   AND lower(COALESCE(t.type, '')) = ?
                   AND COALESCE(t.pending, 0) = 0
-                  AND COALESCE(t.is_reimbursement, 0) = 0
                 ORDER BY t.date DESC
                 """,
                 (user_id, travel_category)
@@ -845,9 +851,11 @@ def travel_analysis():
                     "transactions": []
                 }
             trip = trips[key]
-            trip["total"] += amount
-            trip["count"] += 1
-            trip["categories"][subtype] = trip["categories"].get(subtype, 0.0) + amount
+            is_reimbursement = int(r["is_reimbursement"] or 0)
+            if not is_reimbursement:
+                trip["total"] += amount
+                trip["count"] += 1
+                trip["categories"][subtype] = trip["categories"].get(subtype, 0.0) + amount
             trip["transactions"].append({
                 "transaction_id": r["transaction_id"],
                 "date": r["date"],
@@ -862,9 +870,11 @@ def travel_analysis():
                 "account_type": r["account_type"],
                 "account_subtype": r["account_subtype"],
                 "institution_name": r["institution_name"],
-                "note": r["note"]
+                "note": r["note"],
+                "is_reimbursement": is_reimbursement
             })
-            category_totals[subtype] = category_totals.get(subtype, 0.0) + amount
+            if not is_reimbursement:
+                category_totals[subtype] = category_totals.get(subtype, 0.0) + amount
             if r["date"]:
                 trip["first_date"] = min(trip["first_date"], r["date"])
                 trip["last_date"] = max(trip["last_date"], r["date"])

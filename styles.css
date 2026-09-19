@@ -1219,10 +1219,33 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 
 .travel-transaction-table th:nth-child(3),
 .travel-transaction-table td:nth-child(3),
-.travel-transaction-table th:nth-child(6),
-.travel-transaction-table td:nth-child(6) {
+.travel-transaction-table th:nth-child(7),
+.travel-transaction-table td:nth-child(7) {
     min-width: 220px;
     white-space: normal;
+}
+
+.travel-transaction-table th:nth-child(6),
+.travel-transaction-table td:nth-child(6) {
+    width: 124px;
+    min-width: 124px;
+    text-align: center;
+}
+
+.travel-reimbursement-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 8px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.travel-reimbursement-none {
+    color: var(--text-muted);
 }
 
 .travel-account-cell {

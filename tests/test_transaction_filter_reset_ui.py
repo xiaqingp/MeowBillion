@@ -12,6 +12,8 @@ class TransactionFilterResetUiTests(unittest.TestCase):
 
         self.assertIn('id="tx-reset-filters-btn"', html)
         self.assertIn('function resetTransactionFilters()', app_js)
+        self.assertIn('"tx-reimbursement-filter"', app_js)
+        self.assertIn('"filter-direction-container", "filter-category-container", "filter-reviewed-container"', app_js)
         self.assertIn('setMultiselectValues("filter-category-container"', app_js)
         self.assertIn('setMultiselectValues("filter-reviewed-container"', app_js)
         self.assertIn('triggerFilterUpdate();', app_js)

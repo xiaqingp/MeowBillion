@@ -170,8 +170,8 @@ def find_pending_duplicate(cursor, tx_id, merchant, amount, direction, account_i
             return row
     return None
 
-def load_allocation_overrides():
-    user_id = current_user_id()
+def load_allocation_overrides(user_id=None):
+    user_id = user_id or current_user_id()
     try:
         with get_db() as conn:
             conn.execute(
@@ -2142,8 +2142,8 @@ def get_portfolio_allocation_details():
         "institutions": result
     })
 
-def load_manual_asset_rows():
-    user_id = current_user_id()
+def load_manual_asset_rows(user_id=None):
+    user_id = user_id or current_user_id()
     rows = []
     with get_db() as conn:
         asset_rows = conn.execute(
@@ -2328,9 +2328,9 @@ def build_allocation_accounts_payload(use_cache=True, user_id=None):
             now = time.time()
             if ALLOCATION_CACHE["user_id"] == user_id and ALLOCATION_CACHE["payload"] and now - ALLOCATION_CACHE["time"] < 45:
                 return ALLOCATION_CACHE["payload"]
-            return build_allocation_accounts_payload(use_cache=False)
+            return build_allocation_accounts_payload(use_cache=False, user_id=user_id)
 
-    overrides = load_allocation_overrides()
+    overrides = load_allocation_overrides(user_id=user_id)
 
     try:
         conn = get_db()
@@ -2445,7 +2445,7 @@ def build_allocation_accounts_payload(use_cache=True, user_id=None):
             "allocation_as_of": (allocation_snapshots.get(account_id) or {}).get("date"),
         })
 
-    manual_asset_rows = load_manual_asset_rows()
+    manual_asset_rows = load_manual_asset_rows(user_id=user_id)
     for row in manual_asset_rows:
         rows.append(row)
         for key in totals:

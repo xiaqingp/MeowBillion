@@ -2296,7 +2296,7 @@ function renderTravelTripTransactions(tripKey) {
     const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
     if (!trip) {
         if (title) title.textContent = "Trip Transactions";
-        tbody.innerHTML = `<tr><td colspan="6" class="allocation-empty">Select a trip to view transactions.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="allocation-empty">Select a trip to view transactions.</td></tr>`;
         return;
     }
 
@@ -2308,9 +2308,12 @@ function renderTravelTripTransactions(tripKey) {
             <td>${escapeHtml(tx.merchant || "")}</td>
             <td>${escapeHtml(tx.category || "Unclassified")}</td>
             <td>${money.format(tx.amount || 0)}</td>
+            <td class="travel-reimbursement-cell">${tx.is_reimbursement
+                ? '<span class="travel-reimbursement-badge">To reimburse</span>'
+                : '<span class="travel-reimbursement-none">—</span>'}</td>
             <td>${escapeHtml(tx.note || "")}</td>
         </tr>
-    `).join("") || `<tr><td colspan="6" class="allocation-empty">No transactions found for this trip.</td></tr>`;
+    `).join("") || `<tr><td colspan="7" class="allocation-empty">No transactions found for this trip.</td></tr>`;
     lucide.createIcons();
 }
 
@@ -2798,6 +2801,7 @@ export function triggerFilterUpdate() {
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
     const subcategorySelect = document.getElementById("tx-subcategory-filter");
+    const reimbursementSelect = document.getElementById("tx-reimbursement-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     state.currentFilters.search = searchInput ? searchInput.value.trim() : "";
     state.currentFilters.direction = getMultiselectValues("filter-direction-container");
@@ -2809,6 +2813,7 @@ export function triggerFilterUpdate() {
     state.currentFilters.account = accountSelect ? accountSelect.value : "all";
     state.currentFilters.assignment = assignmentSelect ? assignmentSelect.value : "all";
     state.currentFilters.subcategory = subcategorySelect ? subcategorySelect.value : "all";
+    state.currentFilters.reimbursement = reimbursementSelect ? reimbursementSelect.value : "all";
     state.currentFilters.amount = amountInput ? amountInput.value.trim() : "";
     persistTransactionFilters();
     state.currentPage = 1;
@@ -2850,7 +2855,7 @@ function applyTransactionFiltersToControls() {
         if (input) input.value = value || "";
     });
 
-    [["tx-account-filter", "account"], ["tx-assignment-filter", "assignment"], ["tx-subcategory-filter", "subcategory"]].forEach(([id, key]) => {
+    [["tx-account-filter", "account"], ["tx-assignment-filter", "assignment"], ["tx-subcategory-filter", "subcategory"], ["tx-reimbursement-filter", "reimbursement"]].forEach(([id, key]) => {
         const select = document.getElementById(id);
         if (!select) return;
         const value = state.currentFilters[key] || "all";
@@ -2859,12 +2864,14 @@ function applyTransactionFiltersToControls() {
     });
 
     [
-        ["filter-direction-container", state.currentFilters.direction],
-        ["filter-category-container", state.currentFilters.category],
-        ["filter-reviewed-container", state.currentFilters.reviewed]
-    ].forEach(([containerId, value]) => {
+        ["filter-direction-container", state.currentFilters.direction, "direction"],
+        ["filter-category-container", state.currentFilters.category, "category"],
+        ["filter-reviewed-container", state.currentFilters.reviewed, "reviewed"]
+    ].forEach(([containerId, value, filterKey]) => {
         const available = Array.from(document.querySelectorAll(`#${containerId} input[type='checkbox']`)).map(input => input.value);
-        const selected = value === "all" ? available : value === "none" ? [] : String(value || "").split(",");
+        const normalizedValue = value || "all";
+        state.currentFilters[filterKey] = normalizedValue;
+        const selected = normalizedValue === "all" ? available : normalizedValue === "none" ? [] : String(normalizedValue).split(",");
         setMultiselectValues(containerId, selected);
     });
 }
@@ -2969,6 +2976,7 @@ function setupFilters() {
     const accountSelect = document.getElementById("tx-account-filter");
     const assignmentSelect = document.getElementById("tx-assignment-filter");
     const subcategorySelect = document.getElementById("tx-subcategory-filter");
+    const reimbursementSelect = document.getElementById("tx-reimbursement-filter");
     const amountInput = document.getElementById("tx-amount-filter");
     const resetFiltersBtn = document.getElementById("tx-reset-filters-btn");
     if (monthInput) {
@@ -2994,6 +3002,7 @@ function setupFilters() {
     if (accountSelect) accountSelect.onchange = triggerFilterUpdate;
     if (assignmentSelect) assignmentSelect.onchange = triggerFilterUpdate;
     if (subcategorySelect) subcategorySelect.onchange = triggerFilterUpdate;
+    if (reimbursementSelect) reimbursementSelect.onchange = triggerFilterUpdate;
     if (amountInput) amountInput.oninput = debouncedFilterUpdate;
     if (resetFiltersBtn) resetFiltersBtn.onclick = resetTransactionFilters;
     
@@ -3047,11 +3056,11 @@ function resetTransactionFilters() {
         const input = document.getElementById(id);
         if (input) input.value = "";
     });
-    ["tx-account-filter", "tx-assignment-filter", "tx-subcategory-filter"].forEach(id => {
+    ["tx-account-filter", "tx-assignment-filter", "tx-subcategory-filter", "tx-reimbursement-filter"].forEach(id => {
         const select = document.getElementById(id);
         if (select) select.value = "all";
     });
-    ["filter-category-container", "filter-reviewed-container"].forEach(containerId => {
+    ["filter-direction-container", "filter-category-container", "filter-reviewed-container"].forEach(containerId => {
         const values = Array.from(document.querySelectorAll(`#${containerId} input[type='checkbox']`)).map(input => input.value);
         setMultiselectValues(containerId, values);
     });
@@ -3203,4 +3212,3 @@ window.confirmInternalTransfer = async function(txId1, txId2, event) {
         alert("Error: " + err.message);
     }
 };
-

@@ -18,6 +18,7 @@ class TransactionFilterPersistenceUiTests(unittest.TestCase):
 
     def test_filters_are_user_scoped_saved_and_applied_to_controls(self):
         app_js = (ROOT / "app.js").read_text(encoding="utf-8")
+        state_js = (ROOT / "modules" / "state.js").read_text(encoding="utf-8")
 
         self.assertIn('sessionStorage.getItem(transactionFilterStorageKey)', app_js)
         self.assertIn('sessionStorage.setItem(transactionFilterStorageKey', app_js)
@@ -25,8 +26,13 @@ class TransactionFilterPersistenceUiTests(unittest.TestCase):
         self.assertIn("persistTransactionFilters();", app_js)
         self.assertIn("applyTransactionFiltersToControls();", app_js)
         self.assertIn('document.getElementById("tx-month-filter")', app_js)
+        self.assertIn('document.getElementById("tx-reimbursement-filter")', app_js)
         self.assertIn('setMultiselectValues("filter-category-container"', app_js)
         self.assertIn('setMultiselectValues("filter-reviewed-container"', app_js)
+        self.assertIn('const normalizedValue = value || "all";', app_js)
+        self.assertIn('direction: "all"', state_js)
+        self.assertIn('category: "all"', state_js)
+        self.assertIn('reimbursement: "all"', state_js)
 
 
 if __name__ == "__main__":

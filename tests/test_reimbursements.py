@@ -71,6 +71,18 @@ class ReimbursementTests(unittest.TestCase):
         self.assertEqual(flags["expense"], 1)
         self.assertEqual(flags["income"], 1)
 
+        reimbursed = self.client.get(
+            "/api/transactions?reviewed_filter=all&reimbursement_filter=yes"
+        ).get_json()["transactions"]
+        not_reimbursed = self.client.get(
+            "/api/transactions?reviewed_filter=all&reimbursement_filter=no"
+        ).get_json()["transactions"]
+        self.assertEqual({row["TransactionID"] for row in reimbursed}, {"expense", "income"})
+        self.assertEqual(
+            {row["TransactionID"] for row in not_reimbursed},
+            {"pending"},
+        )
+
     def test_unchecking_preserves_binary_classification_and_recalculates(self):
         self.mark("expense")
         self.mark("income")
@@ -129,11 +141,16 @@ class ReimbursementTests(unittest.TestCase):
     def test_web_table_uses_narrow_final_checkbox_column_and_dashboard_card(self):
         root = Path(__file__).resolve().parents[1]
         html = (root / "index.html").read_text(encoding="utf-8")
+        app_js = (root / "app.js").read_text(encoding="utf-8")
         renderer = (root / "modules" / "transaction-renderer.js").read_text(encoding="utf-8")
         self.assertIn('<col style="width: 56px;">', html)
         self.assertIn('title="To be reimbursed">Reimb.</th>', html)
         self.assertIn('id="dash-reimbursement"', html)
         self.assertIn('class="card-label">To Be Reimbursed</span>', html)
+        self.assertIn('<th title="To be reimbursed">Reimb.</th>', html)
+        self.assertIn('id="tx-reimbursement-filter"', html)
+        self.assertIn('tx.is_reimbursement', app_js)
+        self.assertIn('travel-reimbursement-badge', app_js)
         self.assertIn('id="reimbursement-input-${t.TransactionID}"', renderer)
         self.assertIn("${disabledAttr}", renderer)
         self.assertNotIn("toggleTransactionReimbursement", renderer)

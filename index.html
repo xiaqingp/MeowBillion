@@ -355,6 +355,12 @@
                             </div>
                         </div>
 
+                        <select id="tx-reimbursement-filter" class="filter-select tx-reimbursement-filter" title="Reimbursement status">
+                            <option value="all">All reimbursement</option>
+                            <option value="yes">To reimburse</option>
+                            <option value="no">Not reimbursement</option>
+                        </select>
+
                         <button type="button" class="filter-reset-btn" id="tx-reset-filters-btn" title="Reset filters">
                             <i data-lucide="rotate-ccw"></i>
                             <span>Reset filters</span>
@@ -433,10 +439,10 @@
                         <div class="analysis-table-wrap">
                             <table class="analysis-table travel-transaction-table">
                                 <thead>
-                                    <tr><th>Date</th><th>Account</th><th>Merchant</th><th>Category</th><th>Spend</th><th>Note</th></tr>
+                                    <tr><th>Date</th><th>Account</th><th>Merchant</th><th>Category</th><th>Spend</th><th title="To be reimbursed">Reimb.</th><th>Note</th></tr>
                                 </thead>
                                 <tbody id="travel-transactions-tbody">
-                                    <tr><td colspan="6" class="allocation-empty">Select a trip to view transactions.</td></tr>
+                                    <tr><td colspan="7" class="allocation-empty">Select a trip to view transactions.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -641,4 +647,3 @@
     <script type="module" src="app.js?v=202607142207"></script>
 </body>
 </html>
-
