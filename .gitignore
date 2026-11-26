@@ -42,3 +42,12 @@ mobile/artifacts/
 mobile/m4*.png
 mobile/m4*.xml
 .tmp.driveupload/
+
+# Deployment metadata, local archives, and signing secrets
+.deployed-git-sha
+archive/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
