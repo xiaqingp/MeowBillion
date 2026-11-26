@@ -1,5 +1,6 @@
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 
 
@@ -69,7 +70,13 @@ class IncomeSubcategoryDrilldownTests(unittest.TestCase):
         self.assertIn('drillDownToTransactions(cell.dataset.drilldownPeriod || "", cell.dataset.drilldownCategory || "", cell.dataset.drilldownSubcategory || "")', app_js)
         self.assertIn('drilldownCell(amount, row[periodKey], "Income", name)', app_js)
         self.assertIn('["tx-subcategory-filter", "subcategory"]', app_js)
-        self.assertIn('["tx-account-filter", "tx-assignment-filter", "tx-subcategory-filter"]', app_js)
+        # Execute the real reset handler: adding another filter must not break
+        # this test, but forgetting to reset the subcategory must fail it.
+        result = subprocess.run(
+            ["node", str(ROOT / "tests" / "transaction_filter_reset.cjs")],
+            cwd=ROOT, capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

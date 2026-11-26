@@ -1,4 +1,6 @@
 import unittest
+import datetime
+from unittest.mock import patch
 import sqlite3
 
 from routes_plaid import apply_plaid_transaction_updates, summarize_sync_results
@@ -25,6 +27,7 @@ class PlaidSyncSummaryTests(unittest.TestCase):
 
     def test_modified_transaction_updates_raw_fields_and_preserves_review_context(self):
         conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
         conn.row_factory = sqlite3.Row
         conn.execute(
             """
@@ -98,9 +101,16 @@ class PlaidSyncSummaryTests(unittest.TestCase):
                 "personal_finance_category": {"primary": "GENERAL_MERCHANDISE", "detailed": "GENERAL_MERCHANDISE_OTHER"}
             }]
         }
-        count = apply_plaid_transaction_updates(
-            conn.cursor(), "u1", updates, {"categories": ["Travel", "Other"], "rules": {}}
-        )
+        class FixedDate(datetime.date):
+            @classmethod
+            def today(cls):
+                return cls(2026, 7, 10)
+
+        # Keep this update scenario inside the rolling 90-day sync window.
+        with patch("datetime.date", FixedDate):
+            count = apply_plaid_transaction_updates(
+                conn.cursor(), "u1", updates, {"categories": ["Travel", "Other"], "rules": {}}
+            )
         row = conn.execute("SELECT * FROM transactions WHERE transaction_id = 'tx1'").fetchone()
 
         self.assertEqual(count, 0)
