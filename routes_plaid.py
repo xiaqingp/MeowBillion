@@ -22,6 +22,14 @@ from classifier import constrain_category_to_config, infer_transaction_classific
 from routes_config import load_categories_config_from_db
 from routes_transactions import fetch_paginated_transactions
 from routes_metadata import apply_rental_property_rules_to_transaction
+from transaction_dedup import (
+    INVESTMENTS_SOURCE,
+    TRANSACTIONS_SOURCE,
+    ensure_plaid_transaction_aliases,
+    find_unique_cross_source_match,
+    link_plaid_transaction_alias,
+    resolve_plaid_transaction_alias,
+)
 
 plaid_bp = Blueprint('plaid', __name__)
 
@@ -794,6 +802,7 @@ def ensure_investment_income_categories(cursor, user_id):
     )
 
 def apply_plaid_investment_income_updates(cursor, user_id, investment_transactions):
+    ensure_plaid_transaction_aliases(cursor)
     approved = []
     for tx in investment_transactions:
         raw_subtype = str(tx.get("subtype") or "").strip().lower().replace("_", " ")
@@ -806,7 +815,10 @@ def apply_plaid_investment_income_updates(cursor, user_id, investment_transactio
     ensure_investment_income_categories(cursor, user_id)
     new_count = 0
     for tx, raw_subtype, mapped_subtype in approved:
-        tx_id = tx["investment_transaction_id"]
+        source_tx_id = tx["investment_transaction_id"]
+        tx_id = resolve_plaid_transaction_alias(
+            cursor, user_id, INVESTMENTS_SOURCE, source_tx_id
+        ) or source_tx_id
         tx_date = tx.get("date")
         date_str = tx_date.isoformat() if hasattr(tx_date, "isoformat") else str(tx_date)
         signed_amount = float(tx.get("amount") or 0.0)
@@ -819,6 +831,27 @@ def apply_plaid_investment_income_updates(cursor, user_id, investment_transactio
             "SELECT reviewed FROM transactions WHERE transaction_id = ? AND user_id = ?",
             (tx_id, user_id),
         ).fetchone()
+
+        if not existing:
+            regular_match = find_unique_cross_source_match(
+                cursor, user_id, INVESTMENTS_SOURCE, source_tx_id,
+                tx.get("account_id"), date_str, merchant, amount, direction,
+            )
+            if regular_match:
+                regular_id = regular_match["transaction_id"]
+                cursor.execute(
+                    "UPDATE transactions SET transaction_id = ? WHERE transaction_id = ? AND user_id = ?",
+                    (source_tx_id, regular_id, user_id),
+                )
+                tx_id = source_tx_id
+                existing = regular_match
+                link_plaid_transaction_alias(
+                    cursor, user_id, TRANSACTIONS_SOURCE, regular_id, tx_id
+                )
+
+        link_plaid_transaction_alias(
+            cursor, user_id, INVESTMENTS_SOURCE, source_tx_id, tx_id
+        )
 
         if existing:
             cursor.execute(
@@ -877,6 +910,7 @@ def fetch_plaid_transaction_updates(client, access_token, cursor_val):
 def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
     import datetime
 
+    ensure_plaid_transaction_aliases(cursor)
     added = updates.get("added", [])
     modified = updates.get("modified", [])
     removed = updates.get("removed", [])
@@ -893,14 +927,36 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
         removed_id = removed_tx.get("transaction_id")
         if not removed_id:
             continue
+        canonical_id = resolve_plaid_transaction_alias(
+            cursor, user_id, TRANSACTIONS_SOURCE, removed_id
+        ) or removed_id
         cursor.execute(
-            "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0 AND user_id = ?",
-            (removed_id, user_id)
+            "DELETE FROM plaid_transaction_aliases WHERE user_id = ? AND source = ? AND source_transaction_id = ?",
+            (user_id, TRANSACTIONS_SOURCE, removed_id),
         )
+        investment_link = cursor.execute(
+            """
+            SELECT 1 FROM plaid_transaction_aliases
+            WHERE user_id = ? AND source = ? AND canonical_transaction_id = ?
+            LIMIT 1
+            """,
+            (user_id, INVESTMENTS_SOURCE, canonical_id),
+        ).fetchone()
+        if not investment_link:
+            cursor.execute(
+                "DELETE FROM transactions WHERE transaction_id = ? AND imported_from_legacy = 0 AND user_id = ?",
+                (canonical_id, user_id)
+            )
 
     for tx in added + modified:
         tx_id = tx.get("transaction_id")
         if not tx_id or tx_id in ignored_ids:
+            continue
+        alias_id = resolve_plaid_transaction_alias(
+            cursor, user_id, TRANSACTIONS_SOURCE, tx_id
+        )
+        if alias_id and alias_id != tx_id:
+            # The investment feed owns the canonical row and richer subtype.
             continue
         amount = float(tx.get("amount", 0))
 
@@ -1043,6 +1099,23 @@ def apply_plaid_transaction_updates(cursor, user_id, updates, category_config):
                 )
                 apply_rental_property_rules_to_transaction(cursor, user_id, tx_id)
             continue
+
+        if pending == 0:
+            investment_match = find_unique_cross_source_match(
+                cursor, user_id, TRANSACTIONS_SOURCE, tx_id,
+                tx.get("account_id"), date_str, merchant, abs_amount, direction,
+            )
+            if investment_match:
+                link_plaid_transaction_alias(
+                    cursor, user_id, TRANSACTIONS_SOURCE, tx_id,
+                    investment_match["transaction_id"],
+                )
+                if pending_duplicate:
+                    cursor.execute(
+                        "DELETE FROM transactions WHERE transaction_id = ? AND user_id = ?",
+                        (pending_duplicate["transaction_id"], user_id),
+                    )
+                continue
 
         reviewed_val = int(pending_duplicate["reviewed"] or 0) if pending_duplicate else 0
         is_b_val = pending_duplicate["is_b"] if pending_duplicate else "n"
@@ -1689,6 +1762,17 @@ def cleanup_cached_item(conn, item_id, new_item_id=None):
                 migrated_transactions += 1
 
     for acc_id in old_acc_ids:
+        conn.execute(
+            """
+            DELETE FROM plaid_transaction_aliases
+            WHERE user_id = ?
+              AND canonical_transaction_id IN (
+                  SELECT transaction_id FROM transactions
+                  WHERE account_name = ? AND user_id = ?
+              )
+            """,
+            (user_id, acc_id, user_id),
+        )
         conn.execute("DELETE FROM transactions WHERE account_name = ? AND user_id = ?", (acc_id, user_id))
         conn.execute("DELETE FROM account_balances_history WHERE account_id = ? AND user_id = ?", (acc_id, user_id))
 
@@ -1805,6 +1889,17 @@ def delete_cached_accounts():
             
             # 6. Perform the cleanup
             for acc_id in old_acc_ids:
+                conn.execute(
+                    """
+                    DELETE FROM plaid_transaction_aliases
+                    WHERE user_id = ?
+                      AND canonical_transaction_id IN (
+                          SELECT transaction_id FROM transactions
+                          WHERE account_name = ? AND user_id = ?
+                      )
+                    """,
+                    (user_id, acc_id, user_id),
+                )
                 conn.execute("DELETE FROM transactions WHERE account_name = ? AND user_id = ?", (acc_id, user_id))
                 conn.execute("DELETE FROM account_balances_history WHERE account_id = ? AND user_id = ?", (acc_id, user_id))
                 

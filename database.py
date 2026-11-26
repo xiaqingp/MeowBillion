@@ -3,6 +3,7 @@ import sqlite3
 import json
 import uuid
 from classifier import constrain_classification_to_config, constrain_category_to_config, infer_transaction_classification_from_history, predict_custom_type
+from transaction_dedup import ensure_plaid_transaction_aliases, reconcile_existing_cross_source_duplicates
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finance.db')
 
@@ -10,6 +11,7 @@ USER_SCOPED_TABLES = [
     'plaid_tokens',
     'accounts',
     'transactions',
+    'plaid_transaction_aliases',
     'account_balances_history',
     'allocation_overrides',
     'manual_assets',
@@ -333,6 +335,7 @@ def init_db():
             value TEXT
         )
         ''')
+        ensure_plaid_transaction_aliases(conn)
         conn.execute('''
         CREATE TABLE IF NOT EXISTS app_config (
             key TEXT PRIMARY KEY,
@@ -656,6 +659,7 @@ def init_db():
 
         migrate_travel_contexts(conn)
         migrate_rental_contexts(conn)
+        reconcile_existing_cross_source_duplicates(conn)
 
         env_client_id = os.getenv('PLAID_CLIENT_ID', '').strip()
         env_secret = os.getenv('PLAID_SECRET', '').strip()

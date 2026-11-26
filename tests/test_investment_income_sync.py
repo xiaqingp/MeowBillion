@@ -5,9 +5,11 @@ import unittest
 
 from routes_plaid import (
     apply_plaid_investment_income_updates,
+    apply_plaid_transaction_updates,
     fetch_plaid_investment_transactions,
     get_investment_income_start_date,
 )
+from transaction_dedup import reconcile_existing_cross_source_duplicates
 
 
 class InvestmentIncomeSyncTests(unittest.TestCase):
@@ -44,7 +46,13 @@ class InvestmentIncomeSyncTests(unittest.TestCase):
                 prediction_reason TEXT,
                 imported_from_legacy INTEGER DEFAULT 0,
                 legacy_matched INTEGER DEFAULT 0,
+                is_reimbursement INTEGER DEFAULT 0,
                 user_id TEXT
+            );
+            CREATE TABLE ignored_plaid_transactions (
+                user_id TEXT,
+                transaction_id TEXT,
+                PRIMARY KEY (user_id, transaction_id)
             );
             CREATE TABLE sync_metadata (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE app_config (
@@ -119,6 +127,123 @@ class InvestmentIncomeSyncTests(unittest.TestCase):
         self.assertEqual(row["merchant"], "Updated dividend")
         self.assertEqual(row["amount"], 10)
         self.assertEqual((row["type"], row["subtype"], row["note"], row["reviewed"]), ("Other", "Keep", "Mine", 1))
+
+    def test_investment_feed_absorbs_matching_reviewed_regular_transaction(self):
+        self.conn.execute(
+            """
+            INSERT INTO transactions
+                (transaction_id, date, authorized_date, type, merchant, amount, direction,
+                 pending, categories, location, payment_channel, account_name, is_b, ratio,
+                 ipay, bpay, mown, note, subtype, reviewed, imported_from_legacy, user_id)
+            VALUES
+                ('regular1', '2026-06-30', '2026-06-30', 'Custom', 'Dividend', 8, 'inflow',
+                 0, '[]', '{}', 'other', 'acct1', 'n', 1, 8, 0, 0, 'keep me',
+                 'Reviewed subtype', 1, 0, 'u1')
+            """
+        )
+
+        count = apply_plaid_investment_income_updates(
+            self.conn.cursor(), "u1", [self._tx("dividend", "investment1", -8)]
+        )
+
+        self.assertEqual(count, 0)
+        row = self.conn.execute("SELECT * FROM transactions").fetchone()
+        self.assertEqual(row["transaction_id"], "investment1")
+        self.assertEqual(row["payment_channel"], "investment")
+        self.assertEqual(
+            (row["type"], row["subtype"], row["note"], row["reviewed"]),
+            ("Custom", "Reviewed subtype", "keep me", 1),
+        )
+        aliases = self.conn.execute(
+            "SELECT source, source_transaction_id, canonical_transaction_id "
+            "FROM plaid_transaction_aliases ORDER BY source"
+        ).fetchall()
+        self.assertEqual(
+            [(row["source"], row["source_transaction_id"], row["canonical_transaction_id"]) for row in aliases],
+            [("investments", "investment1", "investment1"),
+             ("transactions", "regular1", "investment1")],
+        )
+
+    def test_regular_feed_does_not_recreate_existing_investment_income(self):
+        cursor = self.conn.cursor()
+        investment = dict(self._tx("dividend", "investment1", -8), date="2026-10-10")
+        self.assertEqual(
+            apply_plaid_investment_income_updates(cursor, "u1", [investment]),
+            1,
+        )
+        regular = {
+            "transaction_id": "regular1",
+            "account_id": "acct1",
+            "date": "2026-10-10",
+            "authorized_date": "2026-10-10",
+            "name": "Dividend",
+            "amount": -8,
+            "pending": False,
+            "payment_channel": "other",
+            "personal_finance_category": {
+                "primary": "TRANSFER_IN",
+                "detailed": "TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS",
+            },
+        }
+
+        count = apply_plaid_transaction_updates(
+            cursor, "u1", {"added": [regular], "modified": [], "removed": []},
+            {"categories": ["Income", "Other"], "rules": {"Income": ["Dividend"]}},
+        )
+
+        self.assertEqual(count, 0)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 1)
+        alias = self.conn.execute(
+            "SELECT canonical_transaction_id FROM plaid_transaction_aliases "
+            "WHERE source = 'transactions' AND source_transaction_id = 'regular1'"
+        ).fetchone()
+        self.assertEqual(alias[0], "investment1")
+
+        apply_plaid_transaction_updates(
+            cursor, "u1", {"added": [], "modified": [], "removed": [{"transaction_id": "regular1"}]},
+            {"categories": ["Income", "Other"], "rules": {"Income": ["Dividend"]}},
+        )
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 1)
+
+    def test_ambiguous_regular_candidates_are_not_auto_merged(self):
+        for tx_id in ("regular1", "regular2"):
+            self.conn.execute(
+                """
+                INSERT INTO transactions
+                    (transaction_id, date, type, merchant, amount, direction, pending,
+                     payment_channel, account_name, reviewed, imported_from_legacy, user_id)
+                VALUES (?, '2026-06-30', 'Other', 'Dividend', 8, 'inflow', 0,
+                        'other', 'acct1', 0, 0, 'u1')
+                """,
+                (tx_id,),
+            )
+
+        count = apply_plaid_investment_income_updates(
+            self.conn.cursor(), "u1", [self._tx("dividend", "investment1", -8)]
+        )
+
+        self.assertEqual(count, 1)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 3)
+
+    def test_existing_pair_migration_keeps_investment_classification_and_context(self):
+        self.conn.execute(
+            """
+            INSERT INTO transactions
+                (transaction_id, date, type, merchant, amount, direction, pending, payment_channel,
+                 account_name, subtype, reviewed, note, imported_from_legacy, user_id)
+            VALUES
+                ('investment1', '2026-06-30', 'Income', 'Treasury Interest', 8, 'inflow', 0,
+                 'investment', 'acct1', 'Interest', 1, '', 0, 'u1'),
+                ('regular1', '2026-06-30', 'Income', 'Treasury Interest', 8, 'inflow', 0,
+                 'other', 'acct1', 'Dividend', 1, 'tax note', 0, 'u1')
+            """
+        )
+
+        self.assertEqual(reconcile_existing_cross_source_duplicates(self.conn), 1)
+        row = self.conn.execute("SELECT * FROM transactions").fetchone()
+        self.assertEqual((row["transaction_id"], row["subtype"], row["note"]),
+                         ("investment1", "Interest", "tax note"))
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM plaid_transaction_aliases").fetchone()[0], 2)
 
     def test_first_window_starts_january_first_then_uses_90_days(self):
         today = datetime.date(2026, 7, 13)
