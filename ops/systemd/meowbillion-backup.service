@@ -8,4 +8,5 @@ Type=oneshot
 User=xiaqingp
 Environment=HOME=/home/xiaqingp
 EnvironmentFile=/etc/meowbillion/backup.env
+ExecStartPre=/usr/bin/python3 /usr/local/lib/meowbillion/manage.py check
 ExecStart=/usr/local/bin/meowbillion-backup

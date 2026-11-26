@@ -1,66 +1,94 @@
-# 服务器启动、备份与恢复
+# 服务器运行配置：仓库为唯一来源
 
-此目录保存正式服务器现有配置的可安装版本。GitHub 上的代码不会自动替换系统配置，也不会自动重启服务。
+`ops/` 是运行配置和备份脚本的唯一维护位置。系统路径里的文件是安装副本，不直接编辑。GitHub push 本身不会安装或重启服务。
 
-| 文件 | 安装位置 | 用途 |
-| --- | --- | --- |
-| `systemd/meowbillion.service` | `/etc/systemd/system/meowbillion.service` | 开机启动网站/API，端口 8090 |
-| `systemd/meowbillion-backup.service` | `/etc/systemd/system/meowbillion-backup.service` | 执行 Drive 备份 |
-| `systemd/meowbillion-backup.timer` | `/etc/systemd/system/meowbillion-backup.timer` | 每天凌晨 02:00 备份，错过后补执行 |
-| `meowbillion-backup` | `/usr/local/bin/meowbillion-backup` | 文件同步、SQLite 一致性快照、历史清理 |
-| `backup.env.example` | `/etc/meowbillion/backup.env` | 私有备份目标配置模板 |
+## 唯一安装入口
 
-## 与当前服务器的差异
-
-服务账号和项目路径仍按当前服务器的 `xiaqingp`、`/home/xiaqingp/MeowBillion` 保存。换账号或目录时需修改两个 service 和备份脚本中的路径。
-
-公开仓库不保存实际 Drive 文件夹 ID。仓库版本的备份服务从 `/etc/meowbillion/backup.env` 加载 `GDRIVE_ROOT_FOLDER_ID`，脚本检查它非空；当前已安装脚本仍使用原来的内置目标。此次归档没有替换正在运行的系统配置。
-
-真正的 Google OAuth 凭据不在仓库里。脚本仍由服务账号调用 `gcloud auth print-access-token` 获取短期令牌，再通过环境变量传给 rclone；必须使用具有目标 Drive 访问权限和相应 OAuth scope 的账号授权。仅安装 gcloud 或登录一个没有 Drive 权限的账号不足以完成备份。
-
-## 安装或迁移
-
-1. 安装 Git、Python 3（含 venv）、rsync、rclone、Google Cloud CLI。测试套件还需要 Node.js。
-2. 将仓库放到 `/home/xiaqingp/MeowBillion`，创建 `.venv`，执行 `.venv/bin/pip install -r requirements.txt`。
-3. 新安装可从 `.env.example` 创建 `.env` 并生成密钥；恢复旧系统应安全恢复原 `.env` 和数据库。不要提交这些文件。
-4. 使用服务账号配置 Google Drive 授权，确认它能访问原备份目录。私下记录原 Drive 根目录 ID，以便机器损坏后找回。
-5. 检查服务器时区。定时器按服务器本地时间执行；当前为 `America/Los_Angeles`。
-6. 在仓库根目录执行以下命令（需要管理员权限）。已有服务时先确认下面的配置内容，再安装：
+先修改仓库、验证并提交，再执行：
 
 ```bash
-sudo install -d -m 700 /etc/meowbillion
-# 首次安装时复制模板；已有配置不要覆盖。
-sudo test -f /etc/meowbillion/backup.env || sudo install -m 600 ops/backup.env.example /etc/meowbillion/backup.env
-sudoedit /etc/meowbillion/backup.env
-# 填入正确的 GDRIVE_ROOT_FOLDER_ID 后再继续。
-sudo install -m 755 ops/meowbillion-backup /usr/local/bin/meowbillion-backup
-sudo install -m 644 ops/systemd/meowbillion.service /etc/systemd/system/
-sudo install -m 644 ops/systemd/meowbillion-backup.service /etc/systemd/system/
-sudo install -m 644 ops/systemd/meowbillion-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now meowbillion.service
-# 若替换了已经运行的网站服务配置，需另行 restart 才会应用。
-sudo systemctl start meowbillion-backup.service
-sudo systemctl enable --now meowbillion-backup.timer
-systemctl status meowbillion.service meowbillion-backup.timer
-journalctl -u meowbillion-backup.service -n 50 --no-pager
-curl --fail http://127.0.0.1:8090/api/auth/status
+cd /home/xiaqingp/MeowBillion
+sudo python3 ops/manage.py install
 ```
 
-备份服务成功执行后应退出并显示 `status=0/SUCCESS`；oneshot 服务显示 inactive 不代表失败。`rclone.conf` 不存在的提示在此配置下正常，因为连接配置通过环境变量传入。网站绑定 `0.0.0.0`，网络访问范围仍由原有防火墙/Tailscale 配置控制；这些网络配置不包含在本目录中。
+安装器只接受已提交且干净的 `ops/`，自动执行以下步骤：
 
-## 备份内容和恢复
+1. 检查脚本语法、拒绝仓库之外的 systemd drop-in，检查私有备份配置。
+2. 暂停备份定时器，等待当前备份结束，避免更新运行中的任务。
+3. 原样安装下表中的文件，设置权限，并记录提交号及 SHA-256 清单。
+4. 验证 systemd 配置、执行 daemon-reload，逐文件核对仓库、安装文件和清单一致。
+5. 重启网站并检查 HTTP；实际运行已安装的备份服务，上传后重新下载验证。
+6. 启用网站及备份定时器的开机启动，再次检查一致性，全部成功才报告 `INSTALL VERIFIED`。
 
-备份包括项目文件、`.env` 及 SQLite backup API 生成的数据库快照；跳过 Git 历史、Python 虚拟环境和部分缓存。上传前执行数据库完整性检查。Drive `current/` 是最新副本，`versions/时间戳/` 保存被替换/删除的旧文件，清理超过约 30 天的版本目录。历史目录不是每天完整快照。
+安装需要管理员权限。使用互斥锁防止两个安装同时进行。文件安装/配置验证失败会尝试恢复先前的系统文件；文件一致性验证通过后的服务或备份失败会保留已匹配仓库的配置，明确返回失败供排查，不会假报安装成功。第一次备份验证失败时不要认为恢复能力已得到确认；检查日志后重新执行安装命令。
 
-恢复时：
+| 仓库文件 | 安装位置 |
+| --- | --- |
+| `systemd/meowbillion.service` | `/etc/systemd/system/meowbillion.service` |
+| `systemd/meowbillion-backup.service` | `/etc/systemd/system/meowbillion-backup.service` |
+| `systemd/meowbillion-backup.timer` | `/etc/systemd/system/meowbillion-backup.timer` |
+| `meowbillion-backup` | `/usr/local/bin/meowbillion-backup` |
+| `manage.py` | `/usr/local/lib/meowbillion/manage.py` |
 
-1. 停止网站、备份定时器，并等待或停止正在运行的备份任务，防止恢复过程再次上传覆盖备份。先另外保存现有数据库及其 WAL/SHM 和 `.env`。
-2. 从 Drive 下载所需版本到临时目录；优先使用 GitHub 的对应代码版本、备份里的 `finance.db` 与原 `.env`。不要将完整备份直接覆盖到已有 Git 工作区。
-3. 对下载的数据库运行 SQLite `PRAGMA integrity_check`，结果应为 `ok`。这只是结构检查，不等于业务数据验证。
-4. 确认网站已停止，将旧 `finance.db`、`finance.db-wal`、`finance.db-shm` 一起移到安全保留目录，再安装备份中的 `finance.db` 和 `.env`，确保归属服务账号且私密文件权限正确。不要把旧 WAL 与恢复的数据库混用。
-5. 按代码版本安装 Python 依赖，启动网站，验证登录、交易与资产数据。确认无误后恢复备份定时器。
+安装记录位于 `/var/lib/meowbillion/ops-installed.json`。它记录安装来源，不是另一套可编辑配置。
 
-若需恢复历史时点，先在临时目录重建：从 `current/` 复制，按时间从新到旧应用目标之后各次 `versions/` 的旧文件。该机制没有完整文件清单，新建文件的历史删除不能仅靠旧文件目录自动还原；数据库可挑选所需旧版 `finance.db`，代码版本用 Git 恢复。不要宣称任意历史目录可直接整机恢复。
+## 一致性检查
 
-本目录不保存操作系统、防火墙、Tailscale、Google 登录凭据或 App 签名密钥。它们需要单独配置或安全保存。
+```bash
+python3 ops/manage.py check
+```
+
+检查文件内容、权限、root 所有权、提交状态、安装清单及 systemd 加载路径；拒绝额外覆盖配置和未执行 daemon-reload 的状态。网站和备份服务的 `ExecStartPre` 都执行已安装的同一检查器，失败就拒绝启动该次服务。
+
+这能在安装结束、手动检查和服务启动时发现偏离，不是持续监控，也不能阻止管理员绕过工具直接修改文件。修改/拉取新的 `ops/` 后应及时安装，期间旧服务若重启会因配置不一致而拒绝启动。普通应用代码提交不需要重新安装 ops。
+
+## 私有参数与当前机器
+
+账号和路径固定为当前服务器的 `xiaqingp`、`/home/xiaqingp/MeowBillion`；换机器使用同一布局，或在仓库中修改脚本、安装器和 unit 后重新提交。
+
+`/etc/meowbillion/backup.env` 是唯一机器私有参数文件，只允许一项：
+
+```dotenv
+GDRIVE_ROOT_FOLDER_ID=实际的备份根目录ID
+```
+
+它不进入 Git，归 root 所有、权限 0600，由 systemd 读取后传入备份进程。首次安装在本机自动从原备份脚本迁移原有目录 ID，不在日志中打印；新机器没有旧脚本时，管理员先按 `backup.env.example` 创建此文件。之后安装保留并验证它，不覆盖目标。
+
+Google OAuth 授权保存在服务账号自身的 gcloud 配置中，不能提交到 Git。账号必须拥有目标 Drive 的访问权限及相应 OAuth scope。备份通过短期令牌连接 rclone，不依赖 `rclone.conf`；缺少该文件的 NOTICE 在本配置下正常。
+
+## 新机器准备
+
+安装 Git、Python 3（含 venv）、rsync、rclone、Google Cloud CLI、flock。测试还需要 Node.js。恢复/克隆代码，建立 `.venv` 并安装 `requirements.txt`，安全恢复 `.env`、数据库和 Google 授权。定时器按服务器本地时间每天 02:00 运行，当前时区是 `America/Los_Angeles`，关机错过后补执行。最后运行上述唯一安装入口。
+
+网站仍绑定 `0.0.0.0:8090`；网络访问范围由现有防火墙/Tailscale 控制。这些网络配置、操作系统和 App 签名密钥不在本目录中。
+
+## 每次备份的验证
+
+1. rsync 暂存代码和 `.env`，跳过 Git 历史、虚拟环境和部分缓存。
+2. SQLite backup API 生成一致性数据库快照并做完整性检查。
+3. rclone 将文件同步到 Drive `current/`，旧文件移入 `versions/时间戳/`。
+4. 从 Drive 下载 `current/` 到临时目录，比对全部文件 SHA-256，并检查数据库完整性及关键表可读。
+5. 验证成功后才清理超过约 30 天的版本；退出时删除下载的临时副本。
+
+验证过程中不覆盖生产数据库，不启动恢复出来的 App，不向银行发起同步。因此它证明文件往返完整、数据库可读，不等于人工验证了每个业务页面或任意历史时点。脚本互斥锁避免新版备份同时运行。
+
+查看结果：
+
+```bash
+journalctl -u meowbillion-backup.service -n 60 --no-pager
+systemctl status meowbillion.service meowbillion-backup.timer
+```
+
+备份 oneshot 执行完成后 inactive 是正常状态，成功应为 `status=0/SUCCESS`，日志包含 `Restore verification OK`。
+
+## 人工恢复
+
+先停止网站、备份定时器及备份任务，另存当前数据库、WAL/SHM 和 `.env`。从 Drive 下载到临时目录，检查数据库完整性；用 Git 恢复对应代码版本。确认网站已停止后，将旧数据库及 WAL/SHM 一起移走，再安装备份数据库和 `.env`，确保账号与权限正确。恢复 Python 依赖，通过安装入口恢复 ops。网站启动后核对登录、交易与资产，再确认定时备份正常。
+
+`versions/` 是被替换/删除的旧文件集合，不是完整每日快照。恢复旧数据库需选取对应的 `finance.db`；恢复代码使用 Git。缺少完整历史文件清单时，不能把任一版本目录当作整机备份。
+
+## 本次验证记录（2026-11-26）
+
+仓库版脚本已直接完成真实 Drive 上传、重新下载、全部文件哈希比对、SQLite 完整性及关键表读取检查。Python 测试套件 118 项通过，覆盖配置内容/权限/缺失文件/符号链接漂移，以及 systemd 覆盖配置与未重载状态。Bash 语法及 systemd 静态检查通过。
+
+当前操作账号缺少安装到系统目录的 sudo 权限，因此尚未完成管理员安装，旧系统配置仍在运行。直接运行仓库脚本的验证不等于已安装 systemd 服务的验证；管理员执行安装入口后，安装器会重新完成后者并打印 `INSTALL VERIFIED`。本地 App 最新代码同步仍需在本地电脑核对。

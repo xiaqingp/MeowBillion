@@ -9,6 +9,7 @@ User=xiaqingp
 WorkingDirectory=/home/xiaqingp/MeowBillion
 Environment=HOST=0.0.0.0
 Environment=PORT=8090
+ExecStartPre=/usr/bin/python3 /usr/local/lib/meowbillion/manage.py check
 ExecStart=/home/xiaqingp/MeowBillion/.venv/bin/python3 /home/xiaqingp/MeowBillion/server.py
 Restart=always
 RestartSec=5

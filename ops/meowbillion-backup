@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Keep the Drive destination in private machine configuration.
 : "${GDRIVE_ROOT_FOLDER_ID:?Set GDRIVE_ROOT_FOLDER_ID in /etc/meowbillion/backup.env}"
@@ -13,6 +14,8 @@ STAGE="$WORK/current"
 STAMP="$(date +'%Y-%m-%d_%H-%M-%S')"
 
 mkdir -p "$STAGE"
+exec 9>"$WORK/backup.lock"
+flock -n 9 || { echo "Another backup is running" >&2; exit 1; }
 
 echo "[$(date)] Preparing file snapshot..."
 
@@ -37,7 +40,7 @@ import sys
 
 src_path, dst_path = sys.argv[1], sys.argv[2]
 
-src = sqlite3.connect(src_path, timeout=30)
+src = sqlite3.connect(f"file:{src_path}?mode=ro", uri=True, timeout=30)
 dst = sqlite3.connect(dst_path)
 
 src.backup(dst)
@@ -70,10 +73,36 @@ rclone sync "$STAGE/" gdrive:current \
   --create-empty-src-dirs \
   --stats-one-line
 
+echo "[$(date)] Downloading backup for restore verification..."
+RESTORE="$(mktemp -d "$WORK/restore.XXXXXX")"
+trap 'rm -rf -- "$RESTORE"' EXIT
+rclone copy gdrive:current "$RESTORE/" --create-empty-src-dirs
+python3 - "$STAGE" "$RESTORE" <<'VERIFY'
+import hashlib
+from pathlib import Path
+import sqlite3
+import sys
+
+expected, restored = map(Path, sys.argv[1:])
+def inventory(root):
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in root.rglob('*') if p.is_file()}
+if inventory(expected) != inventory(restored):
+    raise SystemExit("Restored files do not match the uploaded snapshot")
+with sqlite3.connect(f"file:{restored / 'finance.db'}?mode=ro", uri=True) as db:
+    if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        raise SystemExit("Restored SQLite integrity_check failed")
+    for table in ('users', 'transactions', 'accounts'):
+        db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()
+print("Restore verification OK: all file hashes match and database is readable")
+VERIFY
+
 echo "[$(date)] Removing version backups older than 30 days..."
 
 CUTOFF="$(date -d '30 days ago' +%Y-%m-%d)"
 
+rclone mkdir gdrive:versions
+VERSION_DIRS="$(rclone lsf gdrive:versions --dirs-only)"
 while IFS= read -r DIR; do
     DIR="${DIR%/}"
     DAY="${DIR%%_*}"
@@ -82,6 +111,6 @@ while IFS= read -r DIR; do
         echo "Removing old version: $DIR"
         rclone purge "gdrive:versions/$DIR"
     fi
-done < <(rclone lsf gdrive:versions --dirs-only 2>/dev/null || true)
+done <<< "$VERSION_DIRS"
 
 echo "[$(date)] MeowBillion backup complete."
