@@ -91,4 +91,4 @@ systemctl status meowbillion.service meowbillion-backup.timer
 
 仓库版脚本已直接完成真实 Drive 上传、重新下载、全部文件哈希比对、SQLite 完整性及关键表读取检查。Python 测试套件 118 项通过，覆盖配置内容/权限/缺失文件/符号链接漂移，以及 systemd 覆盖配置与未重载状态。Bash 语法及 systemd 静态检查通过。
 
-当前操作账号缺少安装到系统目录的 sudo 权限，因此尚未完成管理员安装，旧系统配置仍在运行。直接运行仓库脚本的验证不等于已安装 systemd 服务的验证；管理员执行安装入口后，安装器会重新完成后者并打印 `INSTALL VERIFIED`。本地 App 最新代码同步仍需在本地电脑核对。
+管理员已从提交 `e23ffc5` 执行唯一安装入口，安装器输出 `INSTALL VERIFIED`。随后独立检查确认：安装文件与仓库提交一致，systemd 已加载这些文件且没有 drop-in，网站与备份定时器均处于 active/enabled 状态。安装后的实际备份于 10:59 完成 Drive 上传、重新下载、全部文件哈希比对及数据库检查，服务结果为 success。私有配置目录归 root 管理并拒绝普通账号读取。本地 App 最新代码同步仍需在本地电脑核对。
