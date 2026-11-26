@@ -381,14 +381,10 @@ export default function App() {
             dashboard={dashboard}
             error={error}
             history={history}
-            lastSync={lastSync}
             loading={loading}
             onMore={() => setMoreOpen(true)}
             onRefresh={loadDashboard}
-            onSync={syncPlaid}
             onTransactions={() => setTab("transactions")}
-            syncing={syncing}
-            syncMessage={syncMessage}
             displayName={session.user.displayName}
           />
         ) : null}
@@ -397,10 +393,14 @@ export default function App() {
             api={api}
             apiEndpoint={apiEndpoint}
             appLockEnabled={appLockEnabled}
+            lastSync={lastSync}
             onClose={() => setMoreOpen(false)}
             onEndpointSaved={saveApiEndpoint}
             onSetAppLock={updateAppLock}
             onSignOut={signOut}
+            onSync={syncPlaid}
+            syncing={syncing}
+            syncMessage={syncMessage}
           />
         ) : null}
         {tab === "transactions" ? (
@@ -617,18 +617,26 @@ function MoreScreen({
   api,
   apiEndpoint,
   appLockEnabled,
+  lastSync,
   onClose,
   onEndpointSaved,
   onSetAppLock,
   onSignOut,
+  onSync,
+  syncing,
+  syncMessage,
 }: {
   api: ApiClient;
   apiEndpoint: string;
   appLockEnabled: boolean;
+  lastSync: string | null;
   onClose: () => void;
   onEndpointSaved: (value: string) => Promise<string>;
   onSetAppLock(enabled: boolean): Promise<boolean>;
   onSignOut: () => Promise<void>;
+  onSync: () => Promise<void>;
+  syncing: boolean;
+  syncMessage: string;
 }) {
   const [endpointInput, setEndpointInput] = useState(apiEndpoint);
   const [saving, setSaving] = useState(false);
@@ -685,6 +693,23 @@ function MoreScreen({
         </View>
         <Text style={styles.appInfoValue}>Open</Text>
       </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ busy: syncing, disabled: syncing }}
+        disabled={syncing}
+        onPress={() => Alert.alert("Sync Plaid?", "Fetch the latest balances and transactions for your linked accounts.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sync now", onPress: onSync },
+        ])}
+        style={styles.settingRow}
+      >
+        <View>
+          <Text style={styles.appInfoTitle}>{syncing ? "Syncing Plaid…" : "Sync Plaid"}</Text>
+          {lastSync ? <Text style={styles.settingsDescription}>{lastSync}</Text> : null}
+        </View>
+        {syncing ? <ActivityIndicator color="#078F8B" /> : <RefreshCw color="#078F8B" size={20} />}
+      </Pressable>
+      {syncMessage ? <Text accessibilityLiveRegion="polite" style={styles.settingsDescription}>{syncMessage}</Text> : null}
       <Text style={styles.settingsDescription}>
         Changing the server address signs you out before using the new address.
       </Text>
@@ -1118,29 +1143,21 @@ function HomeScreen({
   dashboard,
   error,
   history,
-  lastSync,
   loading,
   onMore,
   onRefresh,
-  onSync,
   onTransactions,
   displayName,
-  syncing,
-  syncMessage,
 }: {
   api: ApiClient;
   dashboard: Dashboard | null;
   error: string | null;
   history: DashboardHistory | null;
-  lastSync: string | null;
   loading: boolean;
   onMore: () => void;
   onRefresh: () => Promise<void>;
-  onSync: () => Promise<void>;
   onTransactions: () => void;
   displayName: string;
-  syncing: boolean;
-  syncMessage: string;
 }) {
   const [netWorthRange, setNetWorthRange] = useState<TrendRange>("1M");
   const [allocationRange, setAllocationRange] = useState<TrendRange>("1M");
@@ -1198,25 +1215,6 @@ function HomeScreen({
           >
             <Settings color="#066F6C" size={22} />
           </Pressable>
-        </View>
-        <View style={styles.syncCard}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ busy: syncing, disabled: syncing }}
-            disabled={syncing}
-            onPress={() => Alert.alert("Sync Plaid?", "Fetch the latest balances and transactions for your linked accounts.", [
-              { text: "Cancel", style: "cancel" },
-              { text: "Sync now", onPress: onSync },
-            ])}
-            style={styles.settingRow}
-          >
-            <View>
-              <Text style={styles.appInfoTitle}>{syncing ? "Syncing Plaid…" : "Sync Plaid"}</Text>
-              {lastSync ? <Text style={styles.settingsDescription}>{lastSync}</Text> : null}
-            </View>
-            {syncing ? <ActivityIndicator color="#078F8B" /> : <RefreshCw color="#078F8B" size={20} />}
-          </Pressable>
-          {syncMessage ? <Text accessibilityLiveRegion="polite" style={styles.settingsDescription}>{syncMessage}</Text> : null}
         </View>
         {loading && !dashboard ? (
           <LoadingScreen label="Loading your overview" />
@@ -1536,7 +1534,6 @@ function sourceLabel(source?: string) {
 }
 
 const styles = StyleSheet.create({
-  syncCard: { marginBottom: 12 },
   tabSafe: {
     backgroundColor: "#fff",
     bottom: 0,

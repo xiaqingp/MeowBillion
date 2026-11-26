@@ -12,9 +12,9 @@ The Android app uses the existing Flask API as its system of record. It sends `A
 
 Mobile access tokens are random values. SQLite stores only their SHA-256 hashes. A revoked or expired token receives `401 Authentication required` on protected endpoints.
 
-## M2 Home
+## M2 Home and More
 
-| Endpoint | Request | Home usage |
+| Endpoint | Request | App usage |
 | --- | --- | --- |
 | `GET /api/monthly_analysis` | Bearer token | latest monthly income and expense |
 | `GET /api/transactions?reviewed_filter=unreviewed&page=1&limit=1` | Bearer token | authoritative `total_count` for the Home pending-transactions entry |
@@ -29,7 +29,7 @@ Mobile access tokens are random values. SQLite stores only their SHA-256 hashes.
 
 The Home Net Worth chart stays compact. Tapping a point opens the full Top 3 Up/Down account explanation in a native bottom sheet; closing it returns to the chart without reloading Home.
 
-The Home **Sync Plaid** button requests confirmation before sending the sync POST. The App distinguishes complete, partial, and failed results. A timed-out POST is not retried automatically because the server can still be syncing.
+From Home, open **More** to find **Sync Plaid**. The button requests confirmation before sending the sync POST. The App distinguishes complete, partial, and failed results. A timed-out POST is not retried automatically because the server can still be syncing.
 
 ## M3 Transactions
 
