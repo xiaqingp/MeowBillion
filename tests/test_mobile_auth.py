@@ -2,9 +2,10 @@ import hashlib
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import database
-from auth import create_user
+from auth import create_user, current_user_id
 from server import app
 
 
@@ -77,6 +78,48 @@ class MobileAuthTests(unittest.TestCase):
 
         response = self.client.get("/api/transactions", headers=self.bearer_headers(token))
         self.assertEqual(response.status_code, 401)
+
+    def test_plaid_sync_accepts_mobile_and_legacy_browser_sessions(self):
+        result = {
+            "status": "partial_success",
+            "new_transactions_count": 1,
+            "succeeded_items": [{"institution_name": "Bank A", "warnings": []}],
+            "failed_items": [{"institution_name": "Bank B", "status": "error_login"}],
+        }
+        users_synced = []
+
+        def mock_sync():
+            users_synced.append(current_user_id())
+            return result
+
+        mobile_headers = self.bearer_headers(self.mobile_login())
+        browser = app.test_client()
+        login = browser.post("/api/auth/login", json={"email": "member@example.com", "password": "password123"})
+        self.assertEqual(login.status_code, 200)
+
+        with patch("routes_plaid.perform_sync", side_effect=mock_sync):
+            anonymous = self.client.post("/api/sync_transactions")
+            self.assertEqual(anonymous.status_code, 401)
+            mobile = self.client.post("/api/sync_transactions", headers=mobile_headers)
+            legacy = browser.post("/api/sync_transactions")
+
+        self.assertEqual(users_synced, [self.owner_id, self.member_id])
+        for response, transaction in ((mobile, "owner-tx"), (legacy, "member-tx")):
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json()
+            self.assertEqual({key: payload[key] for key in result}, result)
+            self.assertEqual([row["TransactionID"] for row in payload["transactions"]], [transaction])
+            self.assertEqual({key: payload[key] for key in ("page", "limit", "total_count", "total_pages")},
+                             {"page": 1, "limit": 100, "total_count": 1, "total_pages": 1})
+
+    def test_plaid_sync_reports_server_error_to_mobile(self):
+        headers = self.bearer_headers(self.mobile_login())
+        with patch("routes_plaid.perform_sync", side_effect=RuntimeError("Sync unavailable")) as perform_sync:
+            response = self.client.post("/api/sync_transactions", headers=headers)
+
+        perform_sync.assert_called_once_with()
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.get_json(), {"error": "Sync unavailable"})
 
     def test_mobile_category_options_and_subcategory_filter(self):
         token = self.mobile_login()

@@ -1,3 +1,5 @@
+import { fetchJsonWithTimeout, RequestTimeoutError } from './connection';
+
 type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export class ApiError extends Error {
@@ -17,10 +19,8 @@ type ApiClientOptions = {
   onUnauthorized?: () => void | Promise<void>;
 };
 
-const REQUEST_TIMEOUT_MS = 10_000;
-
 export function createApiClient({ baseUrl, getToken, fetchImpl = fetch, onUnauthorized }: ApiClientOptions) {
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function request<T>(path: string, init: RequestInit = {}, timeoutMs?: number): Promise<T> {
     const token = await getToken();
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
@@ -31,18 +31,7 @@ export function createApiClient({ baseUrl, getToken, fetchImpl = fetch, onUnauth
       headers.set('Content-Type', 'application/json');
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let response: Response;
-    let payload: T | null;
-    try {
-      response = await fetchImpl(`${baseUrl}${path}`, { ...init, headers, signal: controller.signal });
-      const text = await response.text();
-      try { payload = text ? JSON.parse(text) as T : null; } catch { throw new Error(`The server returned an unreadable response (HTTP ${response.status}).`); }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') throw new Error('Connection timed out. Check the server address and network connection.');
-      throw error;
-    } finally { clearTimeout(timeout); }
+    const { response, payload } = await fetchJsonWithTimeout<T | null>(`${baseUrl}${path}`, { ...init, headers }, fetchImpl, timeoutMs);
     if (!response.ok) {
       if (response.status === 401) await onUnauthorized?.();
       throw new ApiError((payload as { error?: string } | null)?.error || `Request failed (${response.status})`, response.status);
@@ -50,12 +39,24 @@ export function createApiClient({ baseUrl, getToken, fetchImpl = fetch, onUnauth
     return payload as T;
   }
 
+  async function get<T>(path: string, { retry = false } = {}): Promise<T> {
+    try {
+      return await request<T>(path);
+    } catch (error) {
+      const transient = error instanceof RequestTimeoutError
+        || (error instanceof TypeError && /network request failed|failed to fetch/i.test(error.message))
+        || (error instanceof ApiError && [502, 503, 504].includes(error.status));
+      if (!retry || !transient) throw error;
+      return request<T>(path);
+    }
+  }
+
   return {
-    get: <T>(path: string) => request<T>(path),
-    post: <T>(path: string, body?: unknown) => request<T>(path, {
+    get,
+    post: <T>(path: string, body?: unknown, { timeoutMs }: { timeoutMs?: number } = {}) => request<T>(path, {
       method: 'POST',
       body: body === undefined ? undefined : JSON.stringify(body),
-    }),
+    }, timeoutMs),
     patch: <T>(path: string, body?: unknown) => request<T>(path, {
       method: 'PATCH',
       body: body === undefined ? undefined : JSON.stringify(body),

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { GestureResponderEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
 
 import { AssetBucket, chartPointPositions, HistoryPoint, nearestPointIndex, TrendRange } from '../dashboard/model';
@@ -56,7 +56,7 @@ export function TrendChart({
 
   useEffect(() => setActive(selectedChartPointIndex(history.length)), [history.length, history.at(-1)?.date]);
 
-  if (history.length < 2) {
+  if (history.length === 0) {
     return <View style={styles.chartEmpty}><Text style={styles.chartEmptyText}>Not enough history yet.</Text></View>;
   }
 
@@ -68,7 +68,7 @@ export function TrendChart({
   const chartWidth = 320;
   const chartHeight = 132;
   const padding = 10;
-  const xPositions = chartPointPositions(history.map((point) => point.date));
+  const xPositions = history.length === 1 ? [0.5] : chartPointPositions(history.map((point) => point.date));
   const x = (index: number) => padding + xPositions[index]! * (chartWidth - padding * 2);
   const y = (value: number) => chartHeight - padding - (domainMax === domainMin ? 0.5 : (value - domainMin) / (domainMax - domainMin)) * (chartHeight - padding * 2);
   const points = (key: TrendSeries) => history.map((point, index) => `${x(index)},${y(Number(point[key] || 0))}`).join(' ');
@@ -82,22 +82,17 @@ export function TrendChart({
     setActive(index);
     return index;
   };
-  const shouldClaim = (event: any) => {
-    const start = dragStart.current;
-    return !!start && shouldCaptureChartPan(event.nativeEvent.pageX - start.x, event.nativeEvent.pageY - start.y);
+  const startSwipe = ({ nativeEvent }: GestureResponderEvent) => {
+    dragStart.current = { x: nativeEvent.pageX, y: nativeEvent.pageY };
   };
-  const responder = {
-    onStartShouldSetResponder: () => directTouch,
-    onStartShouldSetResponderCapture: () => directTouch,
-    onMoveShouldSetResponder: shouldClaim,
-    onMoveShouldSetResponderCapture: shouldClaim,
-    onResponderGrant: (event: any) => selectIndex(event.nativeEvent.locationX),
-    onResponderMove: (event: any) => selectIndex(event.nativeEvent.locationX),
-    onResponderRelease: (event: any) => selectIndex(event.nativeEvent.locationX),
-    onResponderTerminationRequest: () => false,
-    onTouchStart: (event: any) => {
-      dragStart.current = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY };
-    },
+  const swipe = ({ nativeEvent }: GestureResponderEvent) => {
+    const start = dragStart.current;
+    if (start && shouldCaptureChartPan(nativeEvent.pageX - start.x, nativeEvent.pageY - start.y)) {
+      selectIndex(nativeEvent.locationX);
+    }
+  };
+  const selectFromTouch = ({ nativeEvent }: GestureResponderEvent) => {
+    selectIndex(nativeEvent.locationX);
   };
 
   return (
@@ -108,12 +103,7 @@ export function TrendChart({
           <Text key={key} style={styles.tooltipValue}>{displayNames?.[key] || key}: {formatMoney(Number(point[key] || 0))}</Text>
         ))}
       </View>
-      <Pressable
-        hitSlop={{ bottom: 12, left: 12, right: 12, top: 12 }}
-        onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
-        onPress={onPointPress ? (event) => onPointPress(history[selectIndex(event.nativeEvent.locationX)] as HistoryPoint) : undefined}
-        {...responder}
-      >
+      <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
         <Svg height={chartHeight} pointerEvents="none" preserveAspectRatio="none" viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%">
           {barSeries.flatMap((key, barIndex) => history.map((item, index) => {
             const value = Number(item[key] || 0);
@@ -140,12 +130,45 @@ export function TrendChart({
             <Circle cx={x(activeIndex)} cy={y(Number(point[key] || 0))} fill="#fff" key={key} r="4" stroke={COLORS[key]} strokeWidth="2" />
           ))}
         </Svg>
-      </Pressable>
-      <View style={styles.axis}>
-        <Text style={styles.axisText}>{labels.first}</Text>
-        <Text style={styles.axisYear}>{labels.year}</Text>
-        <Text style={styles.axisText}>{labels.last}</Text>
+        {directTouch ? (
+          <View
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel="Balance history"
+            accessibilityValue={{ text: `${fullChartDateLabel(point.date)}, ${formatMoney(Number(point['Net Worth'] || 0))}` }}
+            accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+            onAccessibilityAction={({ nativeEvent }) => {
+              const step = nativeEvent.actionName === 'increment' ? 1 : -1;
+              setActive(Math.min(history.length - 1, Math.max(0, activeIndex + step)));
+            }}
+            onStartShouldSetResponder={() => true}
+            onResponderGrant={selectFromTouch}
+            onResponderMove={selectFromTouch}
+            onResponderRelease={selectFromTouch}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : (
+          <Pressable
+            onPressIn={startSwipe}
+            onPressMove={swipe}
+            onPress={(event) => {
+              const index = selectIndex(event.nativeEvent.locationX);
+              const start = dragStart.current;
+              if (!start || !shouldCaptureChartPan(event.nativeEvent.pageX - start.x, event.nativeEvent.pageY - start.y)) {
+                onPointPress?.(history[index] as HistoryPoint);
+              }
+            }}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
       </View>
+      {history.length > 1 ? (
+        <View style={styles.axis}>
+          <Text style={styles.axisText}>{labels.first}</Text>
+          <Text style={styles.axisYear}>{labels.year}</Text>
+          <Text style={styles.axisText}>{labels.last}</Text>
+        </View>
+      ) : null}
       <View style={styles.legend}>
         {series.map((key) => (
           <View key={key} style={styles.legendItem}>

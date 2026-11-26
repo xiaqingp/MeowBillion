@@ -33,6 +33,7 @@ test('account history captures direct touches so dragging selects chart points',
   const accountSheet = readFileSync(join(root, 'src', 'accounts', 'AccountDetailSheet.tsx'), 'utf8');
 
   assert.ok(accountSheet.includes('<TrendChart directTouch'));
-  assert.ok(charts.includes('onStartShouldSetResponderCapture: () => directTouch'));
-  assert.ok(charts.includes('onResponderMove:'));
+  assert.match(charts, /\{directTouch \? \(\s*<View\b[\s\S]*?onStartShouldSetResponder=\{\(\) => true\}[\s\S]*?onResponderGrant=\{selectFromTouch\}[\s\S]*?onResponderMove=\{selectFromTouch\}/);
+  assert.match(charts, /selectIndex\(nativeEvent\.locationX\)/);
+  assert.ok(charts.includes('history.length === 0'));
 });

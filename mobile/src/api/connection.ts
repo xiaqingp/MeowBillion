@@ -2,28 +2,34 @@ type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Pro
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
+export class RequestTimeoutError extends Error {
+  constructor() {
+    super('Connection timed out. Check the server address and network connection.');
+    this.name = 'RequestTimeoutError';
+  }
+}
+
 export async function fetchJsonWithTimeout<T>(
   input: RequestInfo | URL,
   init: RequestInit = {},
   fetchImpl: FetchImplementation = fetch,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<{ response: Response; payload: T }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetchImpl(input, { ...init, signal: controller.signal });
     const text = await response.text();
     let payload: T;
     try {
-      payload = (text ? JSON.parse(text) : {}) as T;
+      payload = (text ? JSON.parse(text) : null) as T;
     } catch {
       throw new Error(`The server returned an unreadable response (HTTP ${response.status}).`);
     }
     return { response, payload };
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Connection timed out. Check the server address and network connection.');
-    }
+    if (controller.signal.aborted) throw new RequestTimeoutError();
     throw error;
   } finally {
     clearTimeout(timeout);

@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   Pressable,
   RefreshControl,
@@ -22,6 +23,7 @@ import {
   Landmark,
   Plane,
   ReceiptText,
+  RefreshCw,
   Settings,
   TrendingDown,
   TrendingUp,
@@ -30,10 +32,9 @@ import {
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ApiError, createApiClient } from "./src/api/client";
-import {
-  checkBackendConnection,
-  fetchJsonWithTimeout,
-} from "./src/api/connection";
+import { checkBackendConnection, RequestTimeoutError } from "./src/api/connection";
+import { plaidSyncMessage, type PlaidSyncResult } from "./src/api/plaidSync";
+import { loginMobile } from "./src/auth/login";
 import { createSessionStore, MobileSession } from "./src/auth/session";
 import { MeowBillionMark } from "./src/components/MeowBillionMark";
 import {
@@ -93,10 +94,14 @@ type Account = {
   institution_name?: string;
   is_virtual?: boolean;
 };
-type Dashboard = ReturnType<typeof buildDashboard> & {
-  accounts: Account[];
-  lastSync: string;
+type Dashboard = Pick<ReturnType<typeof buildDashboard>, "netWorth" | "portfolio" | "allocationGroups"> & {
+  monthlyIncome: number | null;
+  monthlyExpense: number | null;
+  unreviewedCount: number | null;
+  reimbursementOutstanding: number | null;
 };
+type OverviewAnalysis = Parameters<typeof buildDashboard>[0]["analysis"];
+type DashboardHistory = { points: HistoryPoint[]; unavailable: boolean };
 type ApiClient = ReturnType<typeof createApiClient>;
 type Transaction = {
   TransactionID: string;
@@ -136,6 +141,10 @@ export default function App() {
   const [session, setSession] = useState<MobileSession | null>(null);
   const [booting, setBooting] = useState(true);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [history, setHistory] = useState<DashboardHistory | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("home");
@@ -144,21 +153,34 @@ export default function App() {
   const [appLockEnabled, setAppLockEnabled] = useState(false);
   const [locked, setLocked] = useState(false);
   const authenticationInFlight = useRef(false);
+  const overviewRequest = useRef(0);
+  const sessionVersion = useRef(0);
+  const syncingRef = useRef(false);
   const signOut = useCallback(async () => {
-    await sessionStore.clear();
+    sessionVersion.current += 1;
+    overviewRequest.current += 1;
     setSession(null);
     setDashboard(null);
+    setHistory(null);
+    setLastSync(null);
+    setSyncMessage("");
+    setLoading(false);
     setError(null);
     setTab("home");
     setMoreOpen(false);
+    await sessionStore.clear();
   }, []);
   const api = useMemo(
-    () =>
-      createApiClient({
+    () => {
+      const version = sessionVersion.current;
+      return createApiClient({
         baseUrl: apiEndpoint,
         getToken: async () => session?.accessToken || null,
-        onUnauthorized: signOut,
-      }),
+        onUnauthorized: () => {
+          if (version === sessionVersion.current) return signOut();
+        },
+      });
+    },
     [apiEndpoint, session?.accessToken, signOut],
   );
   const saveApiEndpoint = useCallback(
@@ -174,66 +196,97 @@ export default function App() {
   );
   const loadDashboard = useCallback(async () => {
     if (!session) return;
+    const request = ++overviewRequest.current;
+    const isCurrent = () => request === overviewRequest.current;
+    const read = { retry: true };
+    let allocation: Allocation | undefined;
+    let analysis: OverviewAnalysis | undefined;
+    let unreviewedCount: number | null = null;
+    let reimbursementOutstanding: number | null = null;
+    const publish = () => {
+      if (!allocation || !isCurrent()) return;
+      const summary = buildDashboard({
+        allocation,
+        analysis: analysis ?? {},
+        unreviewedCount: unreviewedCount ?? 0,
+        reimbursementOutstanding: reimbursementOutstanding ?? 0,
+        history: [],
+      });
+      setDashboard({
+        ...summary,
+        monthlyIncome: analysis ? summary.monthlyIncome : null,
+        monthlyExpense: analysis ? summary.monthlyExpense : null,
+        unreviewedCount,
+        reimbursementOutstanding,
+      });
+    };
+    function loadMetric<T>(path: string, receive: (value: T) => void) {
+      void api.get<T>(path, read).then((value) => {
+        if (!isCurrent()) return;
+        receive(value);
+        publish();
+      }).catch(() => {});
+    }
+
     setLoading(true);
     setError(null);
-    try {
-      const historyPromise = api
-        .get<{ history?: HistoryPoint[] }>("/api/allocation_history")
-        .then((payload) => ({
-          history: payload.history || [],
-          unavailable: false,
-        }))
-        .catch(() => ({ history: [], unavailable: true }));
-      const [
-        accounts,
-        allocation,
-        analysis,
-        transactions,
-        reimbursement,
-        credentials,
-        history,
-      ] = await Promise.all([
-        api.get<Account[]>("/api/accounts"),
-        api.get<Allocation>("/api/allocation_accounts"),
-        api.get<{
-          recent_months?: Array<{
-            month: string;
-            income: number;
-            expense: number;
-          }>;
-        }>("/api/monthly_analysis"),
-        api.get<{ total_count?: number }>(
-          "/api/transactions?reviewed_filter=unreviewed&page=1&limit=1",
-        ),
-        api.get<{ to_be_reimbursed?: number }>("/api/reimbursement_summary"),
-        api.get<{ last_success_at?: string; last_sync_time?: string }>(
-          "/api/credentials_status",
-        ),
-        historyPromise,
-      ]);
-      setDashboard({
-        ...buildDashboard({
-          allocation,
-          analysis,
-          unreviewedCount: Number(transactions.total_count || 0),
-          reimbursementOutstanding: Number(reimbursement.to_be_reimbursed || 0),
-          history: history.history,
-          historyUnavailable: history.unavailable,
-        }),
-        accounts,
-        lastSync:
-          credentials.last_success_at ||
-          credentials.last_sync_time ||
-          "Not synced yet",
+    const allocationRequest = api.get<Allocation>("/api/allocation_accounts", read);
+    loadMetric<OverviewAnalysis>("/api/monthly_analysis", (value) => { analysis = value; });
+    loadMetric<{ total_count?: number }>("/api/transactions?reviewed_filter=unreviewed&page=1&limit=1",
+      (value) => { unreviewedCount = Number(value.total_count ?? 0); });
+    loadMetric<{ to_be_reimbursed?: number }>("/api/reimbursement_summary",
+      (value) => { reimbursementOutstanding = Number(value.to_be_reimbursed ?? 0); });
+    void api.get<{ history?: HistoryPoint[] }>("/api/allocation_history", read)
+      .then(({ history: points }) => {
+        if (isCurrent()) setHistory({ points: points || [], unavailable: false });
+      })
+      .catch(() => {
+        if (isCurrent()) setHistory((current) => current ?? { points: [], unavailable: true });
       });
+    void api.get<{ last_success_at?: string; last_sync_time?: string }>("/api/credentials_status", read)
+      .then((status) => {
+        if (isCurrent()) {
+          const time = status.last_success_at || status.last_sync_time;
+          setLastSync(time && time !== "N/A" ? `Last sync: ${time}` : "Not synced yet");
+        }
+      })
+      .catch(() => {
+        if (isCurrent()) setLastSync((current) => current ?? "Sync status unavailable");
+      });
+    try {
+      allocation = await allocationRequest;
+      if (!allocation) throw new Error("Current Net Worth is unavailable");
+      publish();
     } catch (requestError) {
-      if (requestError instanceof ApiError && requestError.status === 401)
-        await signOut();
-      setError(errorMessage(requestError));
+      if (isCurrent()) setError(errorMessage(requestError));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [api, session, signOut]);
+  }, [api, session]);
+
+  const syncPlaid = useCallback(async () => {
+    if (syncingRef.current) return;
+    const version = sessionVersion.current;
+    syncingRef.current = true;
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const result = await api.post<PlaidSyncResult>("/api/sync_transactions", undefined, { timeoutMs: 180_000 });
+      if (version !== sessionVersion.current) return;
+      setSyncMessage(plaidSyncMessage(result));
+      if (result.status !== "failed") void loadDashboard();
+    } catch (syncError) {
+      if (version === sessionVersion.current) {
+        setSyncMessage(syncError instanceof RequestTimeoutError ||
+          (syncError instanceof TypeError && /network request failed|failed to fetch/i.test(syncError.message))
+          ? "Sync status is unknown. The server may still be syncing. Check the last sync time before trying again."
+          : errorMessage(syncError));
+      }
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }, [api, loadDashboard]);
 
   const unlock = useCallback(async () => {
     if (authenticationInFlight.current || AppState.currentState !== "active")
@@ -327,10 +380,15 @@ export default function App() {
             api={api}
             dashboard={dashboard}
             error={error}
+            history={history}
+            lastSync={lastSync}
             loading={loading}
             onMore={() => setMoreOpen(true)}
             onRefresh={loadDashboard}
+            onSync={syncPlaid}
             onTransactions={() => setTab("transactions")}
+            syncing={syncing}
+            syncMessage={syncMessage}
             displayName={session.user.displayName}
           />
         ) : null}
@@ -441,27 +499,7 @@ function LoginScreen({
     setError(null);
     try {
       const endpoint = await onEndpointSaved(endpointInput);
-      const { response, payload } = await fetchJsonWithTimeout<{
-        access_token?: string;
-        error?: string;
-        user: { id: string; display_name: string };
-      }>(`${endpoint}/api/auth/mobile/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          device_name: "MeowBillion Android",
-        }),
-      });
-      if (!response.ok) throw new Error(payload.error || "Sign in failed.");
-      const nextSession = {
-        accessToken: payload.access_token as string,
-        user: { id: payload.user.id, displayName: payload.user.display_name },
-      };
+      const nextSession = await loginMobile(endpoint, email, password);
       await sessionStore.save(nextSession);
       onSession(nextSession);
     } catch (loginError) {
@@ -1079,20 +1117,30 @@ function HomeScreen({
   api,
   dashboard,
   error,
+  history,
+  lastSync,
   loading,
   onMore,
   onRefresh,
+  onSync,
   onTransactions,
   displayName,
+  syncing,
+  syncMessage,
 }: {
   api: ApiClient;
   dashboard: Dashboard | null;
   error: string | null;
+  history: DashboardHistory | null;
+  lastSync: string | null;
   loading: boolean;
   onMore: () => void;
   onRefresh: () => Promise<void>;
+  onSync: () => Promise<void>;
   onTransactions: () => void;
   displayName: string;
+  syncing: boolean;
+  syncMessage: string;
 }) {
   const [netWorthRange, setNetWorthRange] = useState<TrendRange>("1M");
   const [allocationRange, setAllocationRange] = useState<TrendRange>("1M");
@@ -1104,7 +1152,7 @@ function HomeScreen({
   const driverCache = useRef(new Map<string, NetWorthDrivers>());
   useEffect(() => {
     driverCache.current.clear();
-  }, [dashboard?.history.at(-1)?.date, dashboard?.netWorth]);
+  }, [history, dashboard?.netWorth]);
   const openNetWorthDrivers = useCallback(async (point: HistoryPoint) => {
     const date = point.date;
     const netWorth = Number(point["Net Worth"] || 0);
@@ -1150,6 +1198,25 @@ function HomeScreen({
           >
             <Settings color="#066F6C" size={22} />
           </Pressable>
+        </View>
+        <View style={styles.syncCard}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ busy: syncing, disabled: syncing }}
+            disabled={syncing}
+            onPress={() => Alert.alert("Sync Plaid?", "Fetch the latest balances and transactions for your linked accounts.", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Sync now", onPress: onSync },
+            ])}
+            style={styles.settingRow}
+          >
+            <View>
+              <Text style={styles.appInfoTitle}>{syncing ? "Syncing Plaid…" : "Sync Plaid"}</Text>
+              {lastSync ? <Text style={styles.settingsDescription}>{lastSync}</Text> : null}
+            </View>
+            {syncing ? <ActivityIndicator color="#078F8B" /> : <RefreshCw color="#078F8B" size={20} />}
+          </Pressable>
+          {syncMessage ? <Text accessibilityLiveRegion="polite" style={styles.settingsDescription}>{syncMessage}</Text> : null}
         </View>
         {loading && !dashboard ? (
           <LoadingScreen label="Loading your overview" />
@@ -1205,7 +1272,7 @@ function HomeScreen({
                 </Text>
               </View>
               <Text style={styles.pendingCount}>
-                {dashboard.unreviewedCount}
+                {dashboard.unreviewedCount ?? "—"}
               </Text>
             </Pressable>
             <ChartCard
@@ -1217,13 +1284,13 @@ function HomeScreen({
                 />
               }
             >
-              {dashboard.historyUnavailable ? (
+              {!history ? <ActivityIndicator color="#078F8B" /> : history.unavailable ? (
                 <PanelUnavailable />
               ) : (
                 <TrendChart
                   formatMoney={formatMoney}
                   history={filterHistoryByRange(
-                    dashboard.history,
+                    history.points,
                     netWorthRange,
                   )}
                   range={netWorthRange}
@@ -1241,13 +1308,13 @@ function HomeScreen({
                 />
               }
             >
-              {dashboard.historyUnavailable ? (
+              {!history ? <ActivityIndicator color="#078F8B" /> : history.unavailable ? (
                 <PanelUnavailable />
               ) : (
                 <TrendChart
                   formatMoney={formatMoney}
                   history={filterHistoryByRange(
-                    dashboard.history,
+                    history.points,
                     allocationRange,
                   )}
                   range={allocationRange}
@@ -1307,13 +1374,16 @@ function HomeScreen({
           </>
         ) : null}
       </ScrollView>
-      <AccountDetailSheet
-        account={selectedAccount || undefined}
-        api={api}
-        errorMessage={errorMessage}
-        formatMoney={formatMoney}
-        onClose={() => setSelectedAccount(null)}
-      />
+      {selectedAccount ? (
+        <AccountDetailSheet
+          key={selectedAccount.account_id}
+          account={selectedAccount}
+          api={api}
+          errorMessage={errorMessage}
+          formatMoney={formatMoney}
+          onClose={() => setSelectedAccount(null)}
+        />
+      ) : null}
       <NetWorthDriversSheet
         formatMoney={formatMoney}
         onClose={() => setDriverSelection(null)}
@@ -1364,7 +1434,7 @@ function Metric({
 }: {
   label: string;
   icon: React.ReactNode;
-  value: number;
+  value: number | null;
   tone: "green" | "rose" | "amber";
 }) {
   return (
@@ -1403,7 +1473,7 @@ function Metric({
               : styles.rose,
         ]}
       >
-        {formatMoney(value)}
+        {value === null ? "—" : formatMoney(value)}
       </Text>
     </View>
   );
@@ -1466,6 +1536,7 @@ function sourceLabel(source?: string) {
 }
 
 const styles = StyleSheet.create({
+  syncCard: { marginBottom: 12 },
   tabSafe: {
     backgroundColor: "#fff",
     bottom: 0,
