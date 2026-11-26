@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily MeowBillion Google Drive Backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=meowbillion-backup.service
+
+[Install]
+WantedBy=timers.target

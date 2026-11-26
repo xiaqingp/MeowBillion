@@ -1,0 +1,11 @@
+[Unit]
+Description=MeowBillion Google Drive Backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xiaqingp
+Environment=HOME=/home/xiaqingp
+EnvironmentFile=/etc/meowbillion/backup.env
+ExecStart=/usr/local/bin/meowbillion-backup

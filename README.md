@@ -25,3 +25,7 @@ Each user adds their own Plaid API credentials in Plaid Settings before linking 
 The SQLite database (`finance.db`), Plaid credentials (`.env`), WAL/SHM files, and local archives are intentionally ignored by Git. Do not commit personal financial data or secrets.
 
 For a new user, the app initializes an empty local database with default categories, including `Travel` and `Rentals`.
+
+## Server operations
+
+See [startup, backup, and recovery instructions](ops/README.md) for the systemd units and backup script used by the Linux server.

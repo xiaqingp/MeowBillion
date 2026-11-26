@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Keep the Drive destination in private machine configuration.
+: "${GDRIVE_ROOT_FOLDER_ID:?Set GDRIVE_ROOT_FOLDER_ID in /etc/meowbillion/backup.env}"
+
+export HOME="/home/xiaqingp"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/google-cloud-sdk/bin"
+
+SRC="/home/xiaqingp/MeowBillion"
+WORK="/home/xiaqingp/.cache/meowbillion-backup"
+STAGE="$WORK/current"
+STAMP="$(date +'%Y-%m-%d_%H-%M-%S')"
+
+mkdir -p "$STAGE"
+
+echo "[$(date)] Preparing file snapshot..."
+
+rsync -a --delete \
+  --exclude='.venv/' \
+  --exclude='.git/' \
+  --exclude='__pycache__/' \
+  --exclude='*.pyc' \
+  --exclude='.pytest_cache/' \
+  --exclude='finance.db' \
+  --exclude='finance.db-wal' \
+  --exclude='finance.db-shm' \
+  "$SRC/" "$STAGE/"
+
+echo "[$(date)] Creating consistent SQLite snapshot..."
+
+rm -f "$STAGE/finance.db"
+
+python3 - "$SRC/finance.db" "$STAGE/finance.db" <<'PY'
+import sqlite3
+import sys
+
+src_path, dst_path = sys.argv[1], sys.argv[2]
+
+src = sqlite3.connect(src_path, timeout=30)
+dst = sqlite3.connect(dst_path)
+
+src.backup(dst)
+
+result = dst.execute("PRAGMA integrity_check").fetchone()[0]
+
+src.close()
+dst.close()
+
+if result != "ok":
+    raise SystemExit(f"SQLite integrity_check failed: {result}")
+
+print("SQLite snapshot OK")
+PY
+
+echo "[$(date)] Getting Google Drive token..."
+
+TOKEN="$(gcloud auth print-access-token)"
+EXPIRY="$(date -u -d '+50 minutes' '+%Y-%m-%dT%H:%M:%SZ')"
+
+export RCLONE_CONFIG_GDRIVE_TYPE=drive
+export RCLONE_CONFIG_GDRIVE_SCOPE=drive
+export RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID="$GDRIVE_ROOT_FOLDER_ID"
+export RCLONE_CONFIG_GDRIVE_TOKEN="{\"access_token\":\"$TOKEN\",\"token_type\":\"Bearer\",\"expiry\":\"$EXPIRY\"}"
+
+echo "[$(date)] Uploading to Google Drive..."
+
+rclone sync "$STAGE/" gdrive:current \
+  --backup-dir "gdrive:versions/$STAMP" \
+  --create-empty-src-dirs \
+  --stats-one-line
+
+echo "[$(date)] Removing version backups older than 30 days..."
+
+CUTOFF="$(date -d '30 days ago' +%Y-%m-%d)"
+
+while IFS= read -r DIR; do
+    DIR="${DIR%/}"
+    DAY="${DIR%%_*}"
+
+    if [[ "$DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] && [[ "$DAY" < "$CUTOFF" ]]; then
+        echo "Removing old version: $DIR"
+        rclone purge "gdrive:versions/$DIR"
+    fi
+done < <(rclone lsf gdrive:versions --dirs-only 2>/dev/null || true)
+
+echo "[$(date)] MeowBillion backup complete."

@@ -51,3 +51,6 @@ archive/
 *.p12
 *.pfx
 *.key
+
+# Private backup destination configuration
+ops/backup.env

@@ -1,0 +1,17 @@
+[Unit]
+Description=MeowBillion
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xiaqingp
+WorkingDirectory=/home/xiaqingp/MeowBillion
+Environment=HOST=0.0.0.0
+Environment=PORT=8090
+ExecStart=/home/xiaqingp/MeowBillion/.venv/bin/python3 /home/xiaqingp/MeowBillion/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
